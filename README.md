@@ -1,6 +1,6 @@
 # portfix
 
-Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. The affected effects were written for the PS2 renderer and were not adapted to PC depth buffers and resolutions. The faults occur on all GPUs, on Windows and on Linux.
+Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. The affected effects were written for the PS2 renderer and were not adapted to PC depth buffers and resolutions.
 
 All fixes are on by default. portfix only changes the order, texture or position of draws the game already makes. It adds no draws of its own.
 
@@ -27,7 +27,7 @@ Summons such as Carbuncle are drawn with a stair-stepped outline. The PS2 versio
 
 Left: off. Right: on.
 
-Video, PS2 then PC with the fix off then on, for each summon: [media/halo-fix.mp4](media/halo-fix.mp4).
+Video, PS2 then PC with the fix off then on, for each summon: [media/halo-fix.mp4](https://github.com/voetre/portfix/raw/refs/heads/main/media/halo-fix.mp4).
 
 ## Commands
 
