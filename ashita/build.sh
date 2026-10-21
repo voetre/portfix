@@ -8,6 +8,7 @@
 # Usage: ./build.sh [install]   - "install" also copies the dll into Ashita/plugins
 set -euo pipefail
 cd "$(dirname "$0")"
+CORE=../core
 
 XWIN="${XWIN:-$HOME/.xwin}"
 ASHITA_DIR="${ASHITA_DIR:-$HOME/Games/final-fantasy-xi-online/drive_c/Ashita}"
@@ -31,7 +32,7 @@ PATH="$LLVM_BIN:$PATH" clang-cl --target=i686-pc-windows-msvc /nologo /std:c++20
     -Wno-unused-function -fuse-ld=lld-link \
     /imsvc "$XWIN/crt/include" /imsvc "$XWIN/sdk/include/ucrt" \
     /imsvc "$XWIN/sdk/include/um" /imsvc "$XWIN/sdk/include/shared" \
-    /I "$OUT/sdk" /Fo"$OUT/" src/*.cpp \
+    /I "$OUT/sdk" /I "$OUT/sdk/d3d8/includes" /I "$CORE" /Fo"$OUT/" src/*.cpp "$CORE"/*.cpp \
     /link /def:src/portfix.def /libpath:"$OUT/libalias" /libpath:"$XWIN/crt/lib/x86" \
     /libpath:"$XWIN/sdk/lib/um/x86" /libpath:"$XWIN/sdk/lib/ucrt/x86" user32.lib /out:"$OUT/portfix.dll"
 

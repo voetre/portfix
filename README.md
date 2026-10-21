@@ -1,54 +1,45 @@
 # portfix
 
-An [Ashita v4](https://www.ashitaxi.com/) plugin that fixes graphics the PC port of FINAL FANTASY XI draws
-wrong. Both effects were made for the PS2 version's renderer and carried over unchanged, so they break on PC
-depth buffers and resolutions, on every GPU and on Windows as well as Wine/DXVK.
+Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. The affected effects were written for the PS2 renderer and were not adapted to PC depth buffers and resolutions. The faults occur on all GPUs, on Windows and on Linux.
 
-The fixes work on the game's own draw calls. portfix doesn't draw anything the game doesn't draw itself: it
-changes the order, a texture or an offset the port got wrong.
+All fixes are on by default. portfix only changes the order, texture or position of draws the game already makes. It adds no draws of its own.
+
+Builds: Ashita v4 plugin.
+
+Installation: [docs/INSTALL.md](docs/INSTALL.md).
+Technical details: [docs/TECHNICAL.md](docs/TECHNICAL.md).
 
 ## Fixes
 
-- **Black water.** Bastok's canals (and other layered water) are solid black up close instead of dark teal. The
-  water is three stacked planes about 0.03 units apart; the tint layer sits just under the ripple layer, and
-  with the PC's 24-bit depth it fails the depth test behind it. portfix holds the ripple layer back and draws it
-  after the tint, without writing depth.
-- **Summon halos.** Carbuncle and the other summons get a thin, stair-stepped rim instead of the PS2's soft
-  blue-violet halo. The game builds the halo from a 256x256 copy of the model's silhouette (16 screen pixels per
-  texel at PC resolutions) and nudges its ghost copies by PS2-sized pixel offsets that are too small to see at
-  PC resolutions. portfix draws those copies from the full-size silhouette and scales the offsets to the render
-  width.
+### Black water
 
-Both are on when the plugin loads.
+Layered water, for example in Port Bastok and Bastok Markets, renders black near the camera. The fix restores the intended colour.
+
+| Off | On |
+|---|---|
+| ![Water, fix off](media/water-off.jpg) | ![Water, fix on](media/water-on.jpg) |
+
+### Summon halos
+
+Summons such as Carbuncle are drawn with a stair-stepped outline. The PS2 version draws a soft outline halo. The fix restores the halo.
+
+![Carbuncle, fix off on the left, fix on on the right](media/halo-off-on.jpg)
+
+Left: off. Right: on.
+
+Video, PS2 then PC with the fix off then on, for each summon: [media/halo-fix.mp4](media/halo-fix.mp4).
 
 ## Commands
 
-```
-/portfix                     show what is on
-/portfix water [on|off]      black water fix
-/portfix glow [on|off|<n>]   summon halo fix; a number sets the ghost spacing scale (0 = render width / 640)
-```
+| Command | Action |
+|---|---|
+| `/portfix` | List fixes and their state. |
+| `/portfix water [on\|off]` | Black water fix. No argument toggles. |
+| `/portfix halo [on\|off]` | Summon halo fix. No argument toggles. |
+| `/portfix help` | List commands. |
 
-## Install
+Settings are not saved. All fixes are on each time the plugin loads.
 
-Copy `portfix.dll` into `Ashita/plugins/` and add `/load portfix` to your Ashita script (for example
-`scripts/default.txt`). It needs no other plugin.
+## Licence
 
-## Build
-
-Cross-compiled on Linux with clang-cl against the MSVC CRT and Windows SDK from
-[xwin](https://github.com/Jake-Shadle/xwin), so it uses the same C++ ABI as Ashita:
-
-```
-xwin --accept-license --arch x86 --cache-dir ~/.cache/xwin splat --output ~/.xwin   # once
-./build.sh            # build/portfix.dll
-./build.sh install    # also copies it into Ashita/plugins (refuses while the game runs)
-```
-
-`ASHITA_DIR`, `XWIN` and `LLVM_BIN` override the default paths.
-
-[docs/NOTES.md](docs/NOTES.md) has how each bug was traced, and how close the halo fix is to the PS2.
-
-## Credits
-
-By voetre. MIT licence.
+MIT. Author: voetre.
