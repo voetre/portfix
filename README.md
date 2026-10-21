@@ -1,7 +1,3 @@
-
-
-https://github.com/user-attachments/assets/3473795b-0a78-444f-9d0d-8504459579b6
-
 # portfix
 
 Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. The affected effects were written for the PS2 renderer and were not adapted to PC depth buffers and resolutions.
