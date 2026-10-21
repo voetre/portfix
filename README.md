@@ -46,4 +46,4 @@ Settings are not saved. All fixes are on each time the plugin loads.
 
 ## Licence
 
-MIT. Author: voetre.
+MIT.
