@@ -1,0 +1,5 @@
+LIBRARY portfix
+EXPORTS
+    expGetInterfaceVersion
+    expCreatePlugin
+    expDestroyPlugin
