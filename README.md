@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/3473795b-0a78-444f-9d0d-8504459579b6
+
 # portfix
 
 Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. The affected effects were written for the PS2 renderer and were not adapted to PC depth buffers and resolutions.
@@ -27,7 +31,9 @@ Summons such as Carbuncle are drawn with a stair-stepped outline. The PS2 versio
 
 Left: off. Right: on.
 
-Video, PS2 then PC with the fix off then on, for each summon: [media/halo-fix.mp4](https://github.com/voetre/portfix/raw/refs/heads/main/media/halo-fix.mp4).
+Video, PS2 then PC with the fix off then on, for each summon:
+
+https://github.com/user-attachments/assets/8b68e54f-139e-4321-b4e2-ae63424262ec
 
 ## Commands
 
