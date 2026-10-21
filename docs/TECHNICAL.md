@@ -2,6 +2,39 @@
 
 portfix intercepts Direct3D 8 draw calls made by FFXiMain.dll. The fix logic is in `core/fixes.cpp`. Each launcher build forwards four device calls to it: DrawPrimitive, DrawIndexedPrimitive, DrawPrimitiveUP and Present. A fix either passes a draw through, holds it, or replaces it with an edited copy. Draws issued by portfix are marked so they are not processed a second time.
 
+## Launcher builds
+
+### Ashita v4
+
+`ashita/src/portfix.cpp` is an Ashita plugin. It receives the device calls through the plugin Direct3D callbacks. Returning true from a callback skips the game's draw. The plugin priority is -10, so it runs before other plugins.
+
+### Windower 4
+
+Windower has no public plugin interface. `windower/portfix/portfix.lua` is a Lua addon. It loads `portfix.dll` with `package.loadlib` and calls `luaopen_portfix`. The dll takes the Lua functions it uses from `LuaCore.dll` at run time.
+
+The dll hooks the device by patching four slots of its vtable: Present (15), DrawPrimitive (70), DrawIndexedPrimitive (71) and DrawPrimitiveUP (72). The device is the one the game uses. FFXiMain.dll keeps its renderer object in a global and the device at renderer + 8. The global is found by this byte pattern in FFXiMain.dll, at the code that creates the renderer:
+
+```
+68 78 04 00 00      push 478h
+C6 44 24 0B 00      mov byte ptr [esp+0Bh], 0
+E8 ?? ?? ?? ??      call operator new
+83 C4 04            add esp, 4
+85 C0               test eax, eax
+0F 84 ?? ?? ?? ??   jz
+8B C8               mov ecx, eax
+E8 ?? ?? ?? ??      call constructor
+85 C0               test eax, eax
+A3 <global>         mov [global], eax
+```
+
+Under Windower the device is Windower's wrapper object. The patch applies to all objects of the wrapper class. Calls on other objects of that class pass through.
+
+The dll does not create a Direct3D object or device. Launchers hook Direct3DCreate8 and treat a new device as the game's device. Under Ashita this reset Ashita's managers and stopped its command handling.
+
+The patch is not removed. The dll pins itself so it stays loaded after the addon unloads. On unload the addon turns all fixes off. Fix state changes from Lua are applied on the render thread at the next Present.
+
+The dll also exports `portfix_start` and `portfix_set(water, halo)` for loading it without Lua.
+
 ## Black water
 
 ### Symptom
@@ -96,7 +129,11 @@ This is a correction of two parameters in the game's own effect, not a reimpleme
 
 ## Verification
 
-Tested on the PC client under Wine with DXVK at 1920x1080. Black water: Port Bastok, Bastok Markets. Summon halos: Carbuncle, Fenrir, Ifrit, Titan, Leviathan, Garuda, Shiva, Ramuh, Diabolos, Cait Sith, Fire Spirit, Promathia. Not tested on Windows.
+Tested on the PC client under Wine with DXVK at 1920x1080. Not tested on Windows.
+
+- Ashita build. Black water: Port Bastok, Bastok Markets. Summon halos: Carbuncle, Fenrir, Ifrit, Titan, Leviathan, Garuda, Shiva, Ramuh, Diabolos, Cait Sith, Fire Spirit, Promathia.
+- Windower dll. Loaded under Ashita through `portfix_start` and `portfix_set`, with the Ashita plugin unloaded. Black water: Port Bastok. Summon halos: Carbuncle.
+- Windower addon. The Lua addon has not been run under Windower.
 
 ## Method
 

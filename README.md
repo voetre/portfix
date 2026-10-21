@@ -4,7 +4,7 @@ Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. Th
 
 All fixes are on by default. portfix only changes the order, texture or position of draws the game already makes. It adds no draws of its own.
 
-Builds: Ashita v4 plugin.
+Builds: Ashita v4 plugin, Windower 4 addon.
 
 Installation: [docs/INSTALL.md](docs/INSTALL.md).
 Technical details: [docs/TECHNICAL.md](docs/TECHNICAL.md).
@@ -30,6 +30,8 @@ Left: off. Right: on.
 Video, PS2 then PC with the fix off then on, for each summon: [media/halo-fix.mp4](media/halo-fix.mp4).
 
 ## Commands
+
+Ashita: `/portfix`. Windower: `//portfix` in chat, `portfix` in the console.
 
 | Command | Action |
 |---|---|

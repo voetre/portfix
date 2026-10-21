@@ -18,9 +18,28 @@ Check: `/portfix` lists each fix as on.
 
 Remove: type `/unload portfix`, delete the line from the script and delete `Ashita/plugins/portfix.dll`.
 
+## Windower 4
+
+1. Download `portfix-windower-<version>.zip`.
+2. Extract it into the Windower folder. This places `portfix.lua` and `portfix.dll` in `Windower4/addons/portfix/`.
+3. Load it in game: `//lua load portfix`.
+4. To load it at each start, add it to the autoload list in the Windower launcher, or add this line to `Windower4/scripts/init.txt`:
+
+   ```
+   lua load portfix
+   ```
+
+Check: `//portfix` lists each fix as on.
+
+Remove: type `//lua unload portfix`, remove it from autoload and delete `Windower4/addons/portfix/`.
+
+`portfix.dll` stays loaded until the game closes. After `//lua unload portfix` the fixes are off. To replace the dll with a new version, close the game first.
+
 ## Building from source
 
-Requirements: Linux, clang-cl and lld-link (LLVM), and the MSVC CRT and Windows SDK from [xwin](https://github.com/Jake-Shadle/xwin).
+Both builds run on Linux.
+
+Ashita: clang-cl and lld-link (LLVM), and the MSVC CRT and Windows SDK from [xwin](https://github.com/Jake-Shadle/xwin). The build reads the Ashita SDK from the Ashita install.
 
 ```
 xwin --accept-license --arch x86 --cache-dir ~/.cache/xwin splat --output ~/.xwin
@@ -28,6 +47,15 @@ ashita/build.sh            # output: ashita/build/portfix.dll
 ashita/build.sh install    # also copies it to Ashita/plugins. Refused while the game runs.
 ```
 
-The Ashita build reads the SDK from the Ashita install. Environment variables `ASHITA_DIR`, `XWIN` and `LLVM_BIN` override the default paths.
+Environment variables `ASHITA_DIR`, `XWIN` and `LLVM_BIN` override the default paths.
+
+Windower: mingw-w64 for i686 (`i686-w64-mingw32-g++`).
+
+```
+windower/build.sh          # output: windower/build/portfix/
+windower/build.sh install  # also copies it to Windower4/addons/portfix. Refused while the game runs.
+```
+
+Environment variables `WINDOWER_DIR` and `CXX` override the default paths.
 
 `tools/package.sh <version>` builds the release archives into `dist/`.
