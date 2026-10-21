@@ -22,14 +22,14 @@ Layered water, for example in Port Bastok and Bastok Markets, renders black near
 ### Summon halos
 
 Summons such as Carbuncle are drawn with a stair-stepped outline. The PS2 version draws a soft outline halo. The fix restores the halo.
+| Before and After |
+|---|
+| ![Carbuncle, fix off on the left, fix on on the right](media/halo-off-on.jpg) |
 
-![Carbuncle, fix off on the left, fix on on the right](media/halo-off-on.jpg)
-
-Left: off. Right: on.
-
-Video, PS2 then PC with the fix off then on, for each summon:
-
-https://github.com/user-attachments/assets/8b68e54f-139e-4321-b4e2-ae63424262ec
+| Comparison Video |
+|---|
+| https://github.com/user-attachments/assets/8b68e54f-139e-4321-b4e2-ae63424262ec |
+| PS2 at 3x resolution, PC with no fix, PC with portfix |
 
 ## Commands
 
