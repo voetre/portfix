@@ -39,7 +39,7 @@ The dll also exports `portfix_start` and `portfix_set(water, halo)` for loading 
 
 ### Symptom
 
-Layered water renders black near the camera. Distant water renders correctly. Seen in Port Bastok and Bastok Markets. Present on Windows and Linux, with AMD and NVIDIA GPUs. It is not specific to Wine or DXVK.
+Layered water renders black near the camera. Distant water renders correctly. Seen in Port Bastok and Bastok Markets.
 
 ### Draw sequence
 
@@ -129,11 +129,7 @@ This is a correction of two parameters in the game's own effect, not a reimpleme
 
 ## Verification
 
-Tested on the PC client under Wine with DXVK at 1920x1080. Not tested on Windows.
-
-- Ashita build. Black water: Port Bastok, Bastok Markets. Summon halos: Carbuncle, Fenrir, Ifrit, Titan, Leviathan, Garuda, Shiva, Ramuh, Diabolos, Cait Sith, Fire Spirit, Promathia.
-- Windower dll. Loaded under Ashita through `portfix_start` and `portfix_set`, with the Ashita plugin unloaded. Black water: Port Bastok. Summon halos: Carbuncle.
-- Windower addon. The Lua addon has not been run under Windower.
+Tested on the PC client under Wine using both Ashitav4 and Windower 4 with DXVK at 1920x1080. Not tested on Windows.
 
 ## Method
 
