@@ -23,7 +23,7 @@ Remove: type `/unload portfix`, delete the line from the script and delete `Ashi
 1. Download `portfix-windower-<version>.zip`.
 2. Extract it into the Windower folder. This places `portfix.lua` and `portfix.dll` in `Windower4/addons/portfix/`.
 3. Load it in game: `//lua load portfix`.
-4. To load it at each start, add it to the autoload list in the Windower launcher, or add this line to `Windower4/scripts/init.txt`:
+4. To load it at each start, add this line to `Windower4/scripts/init.txt`. The addon list in the Windower launcher shows only official addons. portfix does not appear there.
 
    ```
    lua load portfix
@@ -31,7 +31,7 @@ Remove: type `/unload portfix`, delete the line from the script and delete `Ashi
 
 Check: `//portfix` lists each fix as on.
 
-Remove: type `//lua unload portfix`, remove it from autoload and delete `Windower4/addons/portfix/`.
+Remove: type `//lua unload portfix`, delete the line from `init.txt` and delete `Windower4/addons/portfix/`.
 
 `portfix.dll` stays loaded until the game closes. After `//lua unload portfix` the fixes are off. To replace the dll with a new version, close the game first.
 
