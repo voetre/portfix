@@ -28,11 +28,17 @@ namespace
     // Set from the Lua thread, applied on the render thread at Present.
     std::atomic<bool> g_WantWater{true};
     std::atomic<bool> g_WantHalo{true};
+    std::atomic<bool> g_WantDisint{true};
+    bool g_DisintFailed = false; // the patch couldn't be made (another client version): not tried again
 
     class WindowerFixes final : public Fixes
     {
         void RawDrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count) override { g_DrawPrimitive(m_Device, t, start, count); }
         void RawDrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, const void* data, UINT stride) override { g_DrawPrimitiveUP(m_Device, t, count, data, stride); }
+        void RawDrawIndexedPrimitive(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count) override
+        {
+            g_DrawIndexedPrimitive(m_Device, t, minIndex, numVerts, startIndex, count);
+        }
     };
     WindowerFixes g_Fixes;
 
@@ -50,6 +56,9 @@ namespace
             if (const bool w = g_WantWater; w != g_Fixes.m_Water)
                 g_Fixes.SetWater(w);
             g_Fixes.m_Halo = g_WantHalo;
+            // The game's code is patched here too: the render thread is the one that runs it.
+            if (const bool on = g_WantDisint; on != g_Fixes.m_Disint && !g_DisintFailed)
+                g_DisintFailed = g_Fixes.SetDisint(on) != nullptr;
         }
         return g_Present(d, src, dst, wnd, dirty);
     }
@@ -63,8 +72,8 @@ namespace
 
     HRESULT WINAPI HookDrawIndexedPrimitive(IDirect3DDevice8* d, D3DPRIMITIVETYPE t, UINT min, UINT num, UINT start, UINT count)
     {
-        if (GameDevice(d))
-            g_Fixes.OnDrawIndexedPrimitive();
+        if (GameDevice(d) && g_Fixes.OnDrawIndexedPrimitive(t, min, num, start, count))
+            return D3D_OK;
         return g_DrawIndexedPrimitive(d, t, min, num, start, count);
     }
 
@@ -176,11 +185,12 @@ namespace
         return 2;
     }
 
-    // set(water, halo)
+    // set(water, halo, disint)
     int LuaSet(lua_State* L)
     {
-        g_WantWater = lua_toboolean(L, 1) != 0;
-        g_WantHalo  = lua_toboolean(L, 2) != 0;
+        g_WantWater  = lua_toboolean(L, 1) != 0;
+        g_WantHalo   = lua_toboolean(L, 2) != 0;
+        g_WantDisint = lua_toboolean(L, 3) != 0;
         return 0;
     }
 }
@@ -191,10 +201,11 @@ extern "C" __declspec(dllexport) int portfix_start(void)
     return Install() == nullptr ? 1 : 0;
 }
 
-extern "C" __declspec(dllexport) void portfix_set(const int water, const int halo)
+extern "C" __declspec(dllexport) void portfix_set(const int water, const int halo, const int disint)
 {
-    g_WantWater = water != 0;
-    g_WantHalo  = halo != 0;
+    g_WantWater  = water != 0;
+    g_WantHalo   = halo != 0;
+    g_WantDisint = disint != 0;
 }
 
 // package.loadlib(path, "luaopen_portfix")() -> { start = fn, set = fn }

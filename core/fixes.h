@@ -13,17 +13,21 @@ public:
     IDirect3DDevice8* m_Device = nullptr;
     bool m_Water               = true;
     bool m_Halo                = true;
+    bool m_Disint              = false; // set through SetDisint: it patches the game's code
 
     virtual ~Fixes() = default;
     virtual void RawDrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count)                  = 0;
     virtual void RawDrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, const void* data, UINT stride) = 0;
+    virtual void RawDrawIndexedPrimitive(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count) = 0;
 
     // True: the draw was handled here and the original must be skipped.
     bool OnDrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count);
-    void OnDrawIndexedPrimitive(void);
+    bool OnDrawIndexedPrimitive(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count);
     bool OnDrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, const void* data, UINT stride);
     void OnPresent(void);
     void SetWater(bool on);
+    // nullptr when it's in the state asked for, or the reason it couldn't be turned on.
+    const char* SetDisint(bool on);
     void Release(void);
 
 private:
@@ -40,5 +44,15 @@ private:
     bool WaterSurface(void) const;
     bool WaterHold(D3DPRIMITIVETYPE t, UINT start, UINT count);
     void WaterFlush(void);
+    void WaterRelease(void);
     bool HaloDraw(D3DPRIMITIVETYPE t, UINT count, const void* data);
+
+    // disint.cpp
+    const char* DisintInstall(void);
+    void DisintRemove(void);
+    bool DisintDraw(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count);
+    void DisintBeforeDraw(void);
+    void DisintDrawPieces(void);
+    void DisintDrawHaze(void);
+    void DisintPresent(void);
 };

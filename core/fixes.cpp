@@ -7,6 +7,8 @@ bool Fixes::OnDrawPrimitive(const D3DPRIMITIVETYPE t, const UINT start, const UI
 {
     if (m_Drawing || m_Device == nullptr)
         return false;
+    if (m_Disint)
+        DisintBeforeDraw();
     if (m_Water && WaterSurface()) // the ripple layer waits for the tint layer
     {
         WaterFlush();
@@ -23,16 +25,24 @@ bool Fixes::OnDrawPrimitive(const D3DPRIMITIVETYPE t, const UINT start, const UI
     return false;
 }
 
-void Fixes::OnDrawIndexedPrimitive(void)
+bool Fixes::OnDrawIndexedPrimitive(const D3DPRIMITIVETYPE t, const UINT minIndex, const UINT numVerts, const UINT startIndex, const UINT count)
 {
-    if (!m_Drawing && m_WaterHeld)
+    if (m_Drawing || m_Device == nullptr)
+        return false;
+    if (m_WaterHeld)
         WaterFlush();
+    if (!m_Disint)
+        return false;
+    DisintBeforeDraw();
+    return DisintDraw(t, minIndex, numVerts, startIndex, count);
 }
 
 bool Fixes::OnDrawPrimitiveUP(const D3DPRIMITIVETYPE t, const UINT count, const void* data, const UINT stride)
 {
     if (m_Drawing || m_Device == nullptr)
         return false;
+    if (m_Disint)
+        DisintBeforeDraw();
     if (m_WaterHeld)
         WaterFlush();
     return m_Halo && stride == 28 && HaloDraw(t, count, data);
@@ -43,16 +53,41 @@ void Fixes::OnPresent(void)
     m_WaterHeld = false; // a ripple draw with nothing after it in the frame is dropped
     m_HaloSrc   = nullptr;
     m_HaloLow   = nullptr;
+    if (m_Disint)
+        DisintPresent();
 }
 
 void Fixes::SetWater(const bool on)
 {
     m_Water = on;
     if (!on)
-        Release();
+        WaterRelease();
+}
+
+const char* Fixes::SetDisint(const bool on)
+{
+    if (on == m_Disint)
+        return nullptr;
+    if (!on)
+    {
+        DisintRemove();
+        m_Disint = false;
+        return nullptr;
+    }
+    if (m_Device == nullptr)
+        return "no device yet";
+    const char* error = DisintInstall();
+    m_Disint          = error == nullptr;
+    return error;
 }
 
 void Fixes::Release(void)
+{
+    SetDisint(false);
+    WaterRelease();
+}
+
+void Fixes::WaterRelease(void)
 {
     m_WaterHeld = false;
     for (DWORD* b : {&m_WaterBlock, &m_WaterKeep})

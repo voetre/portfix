@@ -13,6 +13,10 @@ class PortFix final : public IPlugin, public Fixes
     // The device calls come back through Ashita's hooks; Fixes ignores them while it draws.
     void RawDrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count) override { m_Device->DrawPrimitive(t, start, count); }
     void RawDrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, const void* data, UINT stride) override { m_Device->DrawPrimitiveUP(t, count, data, stride); }
+    void RawDrawIndexedPrimitive(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count) override
+    {
+        m_Device->DrawIndexedPrimitive(t, minIndex, numVerts, startIndex, count);
+    }
     void Print(const std::string& msg) const
     {
         m_AshitaCore->GetChatManager()->Write(1, false, (Ashita::Chat::Header("portfix") + Ashita::Chat::Message(msg)).c_str());
@@ -37,18 +41,19 @@ public:
     bool Direct3DInitialize(IDirect3DDevice8* device) override
     {
         m_Device = device;
+        if (const char* error = SetDisint(true))
+            Print(std::string("disint - off: ") + error);
         return true;
     }
     void Direct3DPresent(const RECT*, const RECT*, HWND, const RGNDATA*) override { OnPresent(); }
     bool Direct3DDrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count) override { return OnDrawPrimitive(t, start, count); }
-    bool Direct3DDrawIndexedPrimitive(D3DPRIMITIVETYPE, UINT, UINT, UINT, UINT) override
+    bool Direct3DDrawIndexedPrimitive(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count) override
     {
-        OnDrawIndexedPrimitive();
-        return false;
+        return OnDrawIndexedPrimitive(t, minIndex, numVerts, startIndex, count);
     }
     bool Direct3DDrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, CONST void* data, UINT stride) override { return OnDrawPrimitiveUP(t, count, data, stride); }
 
-    // /portfix [help] | /portfix <water|halo> [on|off]
+    // /portfix [help] | /portfix <water|halo|disint> [on|off]
     bool HandleCommand(int32_t mode, const char* command, bool injected) override
     {
         std::vector<std::string> args;
@@ -64,16 +69,26 @@ public:
                 SetWater(on);
             Print(sub + " - " + (on ? "on" : "off"));
         }
+        else if (sub == "disint")
+        {
+            const bool on = arg == "on" ? true : arg == "off" ? false : !m_Disint;
+            if (const char* error = SetDisint(on))
+                Print(std::string("disint - off: ") + error);
+            else
+                Print(std::string("disint - ") + (m_Disint ? "on" : "off"));
+        }
         else if (sub.empty())
         {
             Print(std::string("water - ") + (m_Water ? "on" : "off"));
             Print(std::string("halo - ") + (m_Halo ? "on" : "off"));
+            Print(std::string("disint - ") + (m_Disint ? "on" : "off"));
         }
         else
         {
             Print("/portfix - list fixes and their state");
             Print("/portfix water [on|off] - black water fix");
             Print("/portfix halo [on|off] - summon halo fix");
+            Print("/portfix disint [on|off] - disintegrate effect fix");
             Print("/portfix help - this list");
         }
         return true;

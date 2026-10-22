@@ -2,7 +2,7 @@
 
 Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. The affected effects were written for the PS2 renderer and were not adapted to PC depth buffers and resolutions.
 
-All fixes are on by default. portfix only changes the order, texture or position of draws the game already makes. It adds no draws of its own.
+All fixes are on by default. The water and halo fixes only change the order, texture or position of draws the game already makes. The disintegrate fix restores a PS2 effect the PC skips: it patches two places in the game's code and draws the effect's pieces itself.
 
 Builds: Ashita v4 plugin, Windower 4 addon.
 
@@ -31,6 +31,16 @@ Summons such as Carbuncle are drawn with a stair-stepped outline. The PS2 versio
 | https://github.com/user-attachments/assets/8b68e54f-139e-4321-b4e2-ae63424262ec |
 | PS2 at 3x resolution, PC with no fix, PC with portfix |
 
+### Disintegrate
+
+Some effects break a model up, most notably the Shadow Lord's change of form in the Throne Room. On the PS2 the first form comes apart into dark shards with purple smoke. On the PC it stays whole. The fix restores the break-up, smoke and haze.
+
+| PS2 | PC, fix off | PC, fix on |
+|---|---|---|
+| ![PS2](docs/disintegrate-ps2.jpg) | ![PC, fix off](docs/disintegrate-off.jpg) | ![PC, fix on](docs/disintegrate-on.jpg) |
+
+<!-- Video: docs/disintegrate-fix.mp4 (PS2 top, PC fix off bottom left, PC fix on bottom right). Upload through the GitHub editor and put the attachment URL here. -->
+
 ## Commands
 
 Ashita: `/portfix`. Windower: `//portfix` in chat, `portfix` in the console.
@@ -40,6 +50,7 @@ Ashita: `/portfix`. Windower: `//portfix` in chat, `portfix` in the console.
 | `/portfix` | List fixes and their state. |
 | `/portfix water [on\|off]` | Black water fix. No argument toggles. |
 | `/portfix halo [on\|off]` | Summon halo fix. No argument toggles. |
+| `/portfix disint [on\|off]` | Disintegrate effect fix. No argument toggles. |
 | `/portfix help` | List commands. |
 
 Settings are not saved. All fixes are on each time the plugin loads.

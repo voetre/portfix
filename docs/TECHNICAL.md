@@ -1,6 +1,6 @@
 # Technical details
 
-portfix intercepts Direct3D 8 draw calls made by FFXiMain.dll. The fix logic is in `core/fixes.cpp`. Each launcher build forwards four device calls to it: DrawPrimitive, DrawIndexedPrimitive, DrawPrimitiveUP and Present. A fix either passes a draw through, holds it, or replaces it with an edited copy. Draws issued by portfix are marked so they are not processed a second time.
+portfix intercepts Direct3D 8 draw calls made by FFXiMain.dll. The fix logic is in `core/fixes.cpp` and `core/disint.cpp`. Each launcher build forwards four device calls to it: DrawPrimitive, DrawIndexedPrimitive, DrawPrimitiveUP and Present. A fix either passes a draw through, holds it, or replaces it with an edited copy. The disintegrate fix also patches two places in FFXiMain.dll's code and makes draws of its own. Draws issued by portfix are marked so they are not processed a second time.
 
 ## Launcher builds
 
@@ -33,7 +33,7 @@ The dll does not create a Direct3D object or device. Launchers hook Direct3DCrea
 
 The patch is not removed. The dll pins itself so it stays loaded after the addon unloads. On unload the addon turns all fixes off. Fix state changes from Lua are applied on the render thread at the next Present.
 
-The dll also exports `portfix_start` and `portfix_set(water, halo)` for loading it without Lua.
+The dll also exports `portfix_start` and `portfix_set(water, halo, disint)` for loading it without Lua.
 
 ## Black water
 
@@ -127,9 +127,76 @@ This is a correction of two parameters in the game's own effect, not a reimpleme
 - The PS2 GS sampling and blending are not emulated.
 - The result was compared by eye with PS2 recordings. It was not measured.
 
+## Disintegrate
+
+### Symptom
+
+Some effects break a model up into pieces. The best known is the Shadow Lord's change of form in the Throne Room (cutscene 32004, effect file 16/98). On the PS2 the first form comes apart into dark textured shards that tumble away. Purple smoke rises from where they break off, with a faint heat haze. Over about 8 seconds the second form is left. On the PC there is a short purple burst. The first form stays whole and normally lit until it fades out. The same op is used by the Eald'Narche, Kam'lanaut and Selh'teus model changes.
+
+Video, 20 seconds of cutscene 32004. Top: PS2. Bottom left: PC, fix off. Bottom right: PC, fix on.
+
+<!-- docs/disintegrate-fix.mp4: upload to the GitHub README editor and put the attachment URL here -->
+
+| PS2 | PC, fix off | PC, fix on |
+|---|---|---|
+| ![PS2](disintegrate-ps2.jpg) | ![PC, fix off](disintegrate-off.jpg) | ![PC, fix on](disintegrate-on.jpg) |
+
+### Mechanism on the PS2
+
+Effect 16/98 runs particles over the body. Each particle's per-frame op list includes op 0x65, with the record `65 07 00 00 | generator name | radius`. The radius is animated by the particle's op 0x6a keyframes: the sphere sits at the body's centre and grows from 0.045 to 4.25 over about 8 seconds.
+
+1. Op 0x65 marks a sphere around the particle for the actor the effect plays on.
+2. After skinning, every body triangle with a vertex inside a sphere is taken. The body stops drawing a taken triangle.
+3. Each newly taken triangle is copied into a piece element (`disg`, generator mt00): its texture, UVs, positions and the body's lit vertex colours.
+4. On frames that took triangles, generator g000 runs once at a taken triangle. It makes a heat haze element (`dist`) and, through its op 0x3c, the purple smoke (generator mt01).
+
+Values read from the PS2 while the cutscene played:
+
+- Pieces: life 40 ticks, rise 0.012 a tick, scale (0.8, 0.8, 1) shrinking to 0.02 over the life, a random spin up to (0.0314, 0.0332, 0.0332) radians a tick about x, y, z. One spin and rise per frame, shared by that frame's pieces. Colour: the three lit body colours times 0x80/0x80.
+- Piece pass: depth test, no depth write, no blending, textured and Gouraud shaded.
+- Haze: life 30 ticks, scale 0.4, turning 0.0698 radians a tick, rising 0.002 a tick. It is a 6-vertex fan, centre opaque and rim transparent, textured with the frame buffer. Each vertex samples the picture at its own position shifted by 0.07 in the element's frame. Centre alpha climbs, holds near 0x78/0x80 and falls. Blend (Cs - Cd) As + Cd, depth test, no depth write.
+
+### Cause
+
+On the PC, op 0x65's entry in the per-particle op table (dispatch in FUN_052da980) points at the do-nothing case shared with op 0x47. The PC has the piece element class (type 0x5A) but its update is a bare `ret`. Nothing is captured, nothing is hidden and no pieces are made. Only the effect's other sprites draw.
+
+The haze element exists on the PC too, but the PC never registers its `dist` resource (a built-in on the PS2), so g000 makes no particles and its smoke never starts.
+
+### Fix
+
+portfix finds three functions in FFXiMain.dll by byte pattern and patches two places.
+
+| | Pattern |
+|---|---|
+| Op dispatch (table address follows) | `8B 45 00 25 FF 00 00 00 48 83 F8 6D 0F 87 ?? ?? ?? ?? FF 24 85` |
+| Particle world position | `83 EC 0C 56 8B F1 8D 46 54 8B 4E 54` |
+| Generator emit (smoke; optional) | `83 EC 4C 53 55 56 8B F1 57 C6 44 24 13 00 F6 86 DC 00 00 00 01` |
+| Part skinning (skin_part_b) | `83 EC 50 53 55 56 57 8B D9 6A 00 89 5C 24 20 E8` |
+
+1. **Op 0x65.** The table entry is checked to equal op 0x47's, then pointed at a 32-byte stub. The stub calls a handler with the particle (EBX), the op record (EBP) and the generator (`[esp+48h]`), then jumps to the original case. The handler records a sphere: centre = the particle's world position, radius = record +0xc, actor = generator +0x3c. The actor is identified by its bone palette, `[[actor+0x6B8]+0x14]`.
+2. **Skinning.** The body is skinned on the CPU into world space, one call per part. skin_part_b's `mov ecx,ebx / call <skin>` is redirected to a hook. For a part skinned with a capturing actor's palette (read from the global skin_part_b loads at +20), the hook points the skinning output at portfix's own buffer and copies it to the locked vertex buffer afterwards. This keeps a readable copy of the positions and normals without reading back write-combined memory.
+3. **Capture.** On the next DrawIndexedPrimitive that draws from that vertex buffer, portfix reads the part's index range once and tests each triangle against this frame's spheres, as the PS2 does (any vertex closer than the radius). Each taken triangle becomes a piece: positions, UVs (stream 2), stage 0 texture, and colours lit with the draw's own lights and material, from the skinned normals. The part is then drawn from a portfix index buffer that leaves out the taken triangles. A part with nothing left is skipped.
+4. **Pieces.** Drawn once a frame, before the first interface draw (FVF XYZRHW, DIFFUSE, TEX1) on the scene target, with the PS2 values above. Depth test on, no depth write, no blending. Colour MODULATE2X(texture, diffuse), the PC's equivalent of the PS2's 0x80 = 1.0 vertex colour.
+5. **Smoke.** On frames that took triangles, mt01 is emitted once per elapsed PS2 frame (30 Hz, up to 4) through the game's own emit function. The parent is a copy of the op 0x65 particle with its local position solved, by three probes of the world position function and Cramer's rule, so that it sits on a taken triangle. The smoke generator is found the way the PS2 finds it: record +8 (g000), then op 0x3c in g000's creation list.
+6. **Haze.** The scene target is copied with CopyRects into a texture of the same size. Each haze element is drawn as the PS2's fan with that texture, with UVs from the projected, shifted vertex positions. Not drawn when the target is multisampled.
+
+An actor with no spheres for 3 seconds gets its body back. Turning the fix off restores both patches.
+
+### Faithfulness
+
+The capture rule, piece motion, timings and draw states are the PS2's, read from its code and from memory while the cutscene played. Known differences:
+
+- The PS2 tests the triangles one GS packet at a time, and once a vertex is inside, the rest of that packet goes too (about 4 triangles a packet). portfix has no packet layout for the PC's meshes and tests each triangle on its own, so a few more triangles stay on the body for a frame or two, and the shard clusters are smaller.
+- The PC's meshes split the body into different triangles, so the shards are not the same shapes or number (about 2,050 triangles on the PC, 3,670 on the PS2). Both bodies are taken over the same 8 seconds.
+- The PS2 lights the body per vertex in VU1. portfix recomputes the fixed-function lighting of the draw for the taken vertices. It is the PC's lit colour, not the PS2's.
+- The haze copies the whole scene target once a frame, not the PS2 frame buffer at the moment of each draw.
+- The pieces are drawn before the interface, not at the point in the frame the PS2 draws them. On both they draw over the burst and under the later smoke.
+- 60 effect ticks a second and 30 PS2 frames a second are assumed for timing.
+- Compared by eye with PS2 recordings, aligned on the effect's colour changes.
+
 ## Verification
 
-Tested on the PC client under Wine using both Ashitav4 and Windower 4 with DXVK at 1920x1080. Not tested on Windows.
+Tested on the PC client under Wine using both Ashitav4 and Windower 4 with DXVK at 1920x1080. Not tested on Windows. The disintegrate fix has been tested on Ashita only (Throne Room cutscene 32004); it is built for Windower but not yet run there.
 
 ## Method
 

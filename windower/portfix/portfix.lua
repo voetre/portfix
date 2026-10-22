@@ -4,9 +4,9 @@ _addon.author   = 'voetre'
 _addon.version  = '1.0'
 _addon.commands = {'portfix'}
 
-local fixes = {'water', 'halo'}
-local about = {water = 'black water fix', halo = 'summon halo fix'}
-local state = {water = true, halo = true}
+local fixes = {'water', 'halo', 'disint'}
+local about = {water = 'black water fix', halo = 'summon halo fix', disint = 'disintegrate effect fix'}
+local state = {water = true, halo = true, disint = true}
 
 local function log(text)
     windower.add_to_chat(207, '[portfix] ' .. text)
@@ -26,14 +26,14 @@ end
 
 local function apply()
     if core then
-        core.set(state.water, state.halo)
+        core.set(state.water, state.halo, state.disint)
     end
 end
 apply()
 
 windower.register_event('unload', function()
     if core then
-        core.set(false, false)
+        core.set(false, false, false)
     end
 end)
 
