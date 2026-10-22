@@ -28,18 +28,17 @@ Summons such as Carbuncle are drawn with a stair-stepped outline. The PS2 versio
 
 | Comparison Video |
 |---|
-| https://github.com/user-attachments/assets/8b68e54f-139e-4321-b4e2-ae63424262ec |
+| https://github.com/user-attachments/assets/ef2ff32c-264b-4fc0-bbfc-3d6319ae7ff3 |
 | PS2 at 3x resolution, PC with no fix, PC with portfix |
 
 ### Disintegrate
 
 Some effects break a model up, most notably the Shadow Lord's change of form in the Throne Room. On the PS2 the first form comes apart into dark shards with purple smoke. On the PC it stays whole. The fix restores the break-up, smoke and haze.
 
-| PS2 | PC, fix off | PC, fix on |
-|---|---|---|
-| ![PS2](docs/disintegrate-ps2.jpg) | ![PC, fix off](docs/disintegrate-off.jpg) | ![PC, fix on](docs/disintegrate-on.jpg) |
-
-<!-- Video: docs/disintegrate-fix.mp4 (PS2 top, PC fix off bottom left, PC fix on bottom right). Upload through the GitHub editor and put the attachment URL here. -->
+| Shadow Lord Comparison |
+|---|
+| https://github.com/user-attachments/assets/682c273c-4cd3-4973-9d3d-b06c36e200ec |
+| PS2 at 3x resolution, PC with no fix, PC with portfix |
 
 ## Commands
 
