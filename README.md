@@ -2,6 +2,8 @@
 
 Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. The affected effects were written for the PS2 renderer and were not adapted to PC depth buffers and resolutions.
 
+Initially created to fix the Port Bastok water, it has evolved into fixing other effects as well.
+
 All fixes are on by default. The water and halo fixes only change the order, texture or position of draws the game already makes. The disintegrate fix restores a PS2 effect the PC skips: it patches two places in the game's code and draws the effect's pieces itself.
 
 Builds: Ashita v4 plugin, Windower 4 addon.
@@ -37,7 +39,7 @@ Some effects break a model up, most notably the Shadow Lord's change of form in 
 
 | Shadow Lord Comparison |
 |---|
-| https://github.com/user-attachments/assets/682c273c-4cd3-4973-9d3d-b06c36e200ec |
+| https://github.com/user-attachments/assets/e4dc0fc8-a7fa-40bc-849b-1b7e05213d57 |
 | PS2 at 3x resolution, PC with no fix, PC with portfix |
 
 ## Commands
