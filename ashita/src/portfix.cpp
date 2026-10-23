@@ -27,7 +27,7 @@ public:
     const char* GetAuthor(void) const override { return "voetre"; }
     const char* GetDescription(void) const override { return "Fixes for graphics the PC port draws wrong."; }
     const char* GetLink(void) const override { return "https://github.com/voetre/portfix"; }
-    double GetVersion(void) const override { return 1.0; }
+    double GetVersion(void) const override { return 1.1; }
     // Early, so the fixes see the game's draws before other plugins act on them.
     int32_t GetPriority(void) const override { return -10; }
     uint32_t GetFlags(void) const override { return static_cast<uint32_t>(Ashita::PluginFlags::UseCommands | Ashita::PluginFlags::UseDirect3D); }

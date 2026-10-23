@@ -700,8 +700,20 @@ bool Fixes::DisintDraw(const D3DPRIMITIVETYPE t, const UINT minIndex, const UINT
             s_ViewCount = i + 1;
         }
     }
+    // Form 2 is the same mesh in the same pose, drawn after form 1 (the capturing actor) and opaque: on the PC it
+    // wins every depth tie and covers form 1 at once. On the PS2 form 1 stays on top and only its holes show form 2,
+    // so a capturing actor's parts are drawn here, a step nearer.
+    DWORD bias = 0;
+    m_Device->GetRenderState(D3DRS_ZBIAS, &bias);
+    m_Device->SetRenderState(D3DRS_ZBIAS, bias + 1);
     if (part.takenCount == 0)
-        return false;
+    {
+        m_Drawing = true;
+        RawDrawIndexedPrimitive(t, minIndex, numVerts, startIndex, count);
+        m_Drawing = false;
+        m_Device->SetRenderState(D3DRS_ZBIAS, bias);
+        return true;
+    }
     if (part.dirty)
     {
         part.dirty = false;
@@ -721,13 +733,15 @@ bool Fixes::DisintDraw(const D3DPRIMITIVETYPE t, const UINT minIndex, const UINT
             part.ib->Unlock();
         }
     }
-    if (part.ib == nullptr || part.kept == 0)
-        return true; // all gone (or no buffer): skip the draw
-    m_Device->SetIndices(part.ib, base);
-    m_Drawing = true;
-    RawDrawIndexedPrimitive(D3DPT_TRIANGLELIST, minIndex, numVerts, 0, part.kept);
-    m_Drawing = false;
-    m_Device->SetIndices(ib, base);
+    if (part.ib != nullptr && part.kept != 0) // else all gone (or no buffer): skip the draw
+    {
+        m_Device->SetIndices(part.ib, base);
+        m_Drawing = true;
+        RawDrawIndexedPrimitive(D3DPT_TRIANGLELIST, minIndex, numVerts, 0, part.kept);
+        m_Drawing = false;
+        m_Device->SetIndices(ib, base);
+    }
+    m_Device->SetRenderState(D3DRS_ZBIAS, bias);
     return true;
 }
 
