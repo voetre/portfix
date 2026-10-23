@@ -37,9 +37,10 @@ Summons such as Carbuncle are drawn with a stair-stepped outline. The PS2 versio
 
 Metal parts of some models, such as Warlord Rojgnoj's gold armour, reflect a sphere map. On the PC the reflection reads the wrong part of the map at half the PS2 strength, so the metal looks dull. The fix restores the PS2 shine.
 
-| PC fix off, PC fix on, PS2 |
+| Comparison |
 |---|
-| |
+| ![Warlord Rojgnoj: PS2, PC with no fix, PC with portfix](media/shine-ps2-off-on.jpg) |
+| PS2 at 3x resolution, PC with no fix, PC with portfix |
 
 ### Disintegrate
 
