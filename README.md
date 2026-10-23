@@ -39,7 +39,7 @@ Metal parts of some models, such as Warlord Rojgnoj's gold armour, reflect a sph
 
 | PC fix off, PC fix on, PS2 |
 |---|
-| ![Warlord Rojgnoj: fix off, fix on, PS2](media/shine-off-on-ps2.jpg) |
+| |
 
 ### Disintegrate
 
