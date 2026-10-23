@@ -31,10 +31,13 @@ bool Fixes::OnDrawIndexedPrimitive(const D3DPRIMITIVETYPE t, const UINT minIndex
         return false;
     if (m_WaterHeld)
         WaterFlush();
-    if (!m_Disint)
-        return false;
-    DisintBeforeDraw();
-    return DisintDraw(t, minIndex, numVerts, startIndex, count);
+    if (m_Disint)
+    {
+        DisintBeforeDraw();
+        if (DisintDraw(t, minIndex, numVerts, startIndex, count))
+            return true;
+    }
+    return m_Shine && ShineDraw(t, minIndex, numVerts, startIndex, count);
 }
 
 bool Fixes::OnDrawPrimitiveUP(const D3DPRIMITIVETYPE t, const UINT count, const void* data, const UINT stride)
@@ -211,5 +214,61 @@ bool Fixes::HaloDraw(const D3DPRIMITIVETYPE t, const UINT count, const void* dat
     RawDrawPrimitiveUP(t, count, v, 28);
     m_Drawing = false;
     m_Device->SetTexture(0, tex);
+    return true;
+}
+
+// Sphere-mapped shine (Warlord Rojgnoj's gold plates, and other models with an 'evev' texture). The PS2 draws the
+// model, then adds the sphere map in a second pass, Cs * Ad + Cd: the map times the batch's strength / 255 times the
+// frame alpha the first pass left, which is the model texture's alpha on the GS scale (0x80 = 1.0, 0xFF ~ 2.0), at
+// uv = 0.5 + 0.5 * (nx, -ny) of the camera-space normal.
+// The port does it in one draw: stage 1 adds the map times the stage-0 alpha (texture alpha * strength / 255 on the
+// 0xFF = 1.0 scale: half the PS2's), at uv = (nx, ny) through an identity matrix, clamped, so a face turned to the
+// camera takes the map's dark corner instead of its bright middle.
+// The fix redraws it with the PS2's mapping and twice the alpha: stage 1 puts map * 2 * alpha in TEMP (its alpha
+// result is the game's, current + map alpha), stage 2 adds TEMP to the model's colour.
+bool Fixes::ShineDraw(const D3DPRIMITIVETYPE t, const UINT minIndex, const UINT numVerts, const UINT startIndex, const UINT count)
+{
+    DWORD v = 0;
+    if (m_Device->GetTextureStageState(1, D3DTSS_COLOROP, &v), v != D3DTOP_MODULATEALPHA_ADDCOLOR)
+        return false;
+    if (m_Device->GetTextureStageState(1, D3DTSS_TEXCOORDINDEX, &v), v != (D3DTSS_TCI_CAMERASPACENORMAL | 1))
+        return false;
+    if (m_Device->GetTextureStageState(1, D3DTSS_COLORARG1, &v), v != D3DTA_CURRENT)
+        return false;
+    if (m_Device->GetTextureStageState(1, D3DTSS_COLORARG2, &v), v != D3DTA_TEXTURE)
+        return false;
+    if (m_ShineTemp < 0)
+    {
+        D3DCAPS8 caps{};
+        m_ShineTemp = SUCCEEDED(m_Device->GetDeviceCaps(&caps)) && (caps.PrimitiveMiscCaps & D3DPMISCCAPS_TSSARGTEMP) != 0 && caps.MaxTextureBlendStages >= 3 ? 1 : 0;
+    }
+    if (m_ShineTemp == 0)
+        return false;
+
+    static const D3DMATRIX ps2 = {0.5f, 0.0f, 0.0f, 0.0f, 0.0f, -0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.5f, 0.5f, 0.0f, 1.0f};
+    static const struct
+    {
+        DWORD stage;
+        D3DTEXTURESTAGESTATETYPE type;
+        DWORD value;
+    } set[] = {
+        {1, D3DTSS_COLOROP, D3DTOP_MODULATE2X}, {1, D3DTSS_COLORARG1, D3DTA_TEXTURE}, {1, D3DTSS_COLORARG2, D3DTA_CURRENT | D3DTA_ALPHAREPLICATE},
+        {1, D3DTSS_RESULTARG, D3DTA_TEMP}, {2, D3DTSS_COLOROP, D3DTOP_ADD}, {2, D3DTSS_COLORARG1, D3DTA_CURRENT}, {2, D3DTSS_COLORARG2, D3DTA_TEMP},
+        {2, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1}, {2, D3DTSS_ALPHAARG1, D3DTA_TEMP}, {3, D3DTSS_COLOROP, D3DTOP_DISABLE}, {3, D3DTSS_ALPHAOP, D3DTOP_DISABLE}};
+    DWORD keep[sizeof(set) / sizeof(set[0])];
+    D3DMATRIX keepTm;
+    m_Device->GetTransform(D3DTS_TEXTURE1, &keepTm);
+    for (size_t i = 0; i < sizeof(set) / sizeof(set[0]); ++i)
+    {
+        m_Device->GetTextureStageState(set[i].stage, set[i].type, &keep[i]);
+        m_Device->SetTextureStageState(set[i].stage, set[i].type, set[i].value);
+    }
+    m_Device->SetTransform(D3DTS_TEXTURE1, &ps2);
+    m_Drawing = true;
+    RawDrawIndexedPrimitive(t, minIndex, numVerts, startIndex, count);
+    m_Drawing = false;
+    m_Device->SetTransform(D3DTS_TEXTURE1, &keepTm);
+    for (size_t i = sizeof(set) / sizeof(set[0]); i-- > 0;)
+        m_Device->SetTextureStageState(set[i].stage, set[i].type, keep[i]);
     return true;
 }

@@ -13,6 +13,7 @@ public:
     IDirect3DDevice8* m_Device = nullptr;
     bool m_Water               = true;
     bool m_Halo                = true;
+    bool m_Shine               = true;
     bool m_Disint              = false; // set through SetDisint: it patches the game's code
 
     virtual ~Fixes() = default;
@@ -46,6 +47,9 @@ private:
     void WaterFlush(void);
     void WaterRelease(void);
     bool HaloDraw(D3DPRIMITIVETYPE t, UINT count, const void* data);
+
+    int m_ShineTemp = -1; // the device has D3DTA_TEMP and three stages: 1, not: 0, not asked yet: -1
+    bool ShineDraw(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count);
 
     // disint.cpp
     const char* DisintInstall(void);

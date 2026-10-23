@@ -4,7 +4,7 @@ Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. Th
 
 Initially created to fix the Port Bastok water, it has evolved into fixing other effects as well.
 
-All fixes are on by default. The water and halo fixes only change the order, texture or position of draws the game already makes. The disintegrate fix restores a PS2 effect the PC skips: it patches two places in the game's code and draws the effect's pieces itself.
+All fixes are on by default. The water, halo and shine fixes only change the order, texture, position or blend stages of draws the game already makes. The disintegrate fix restores a PS2 effect the PC skips: it patches two places in the game's code and draws the effect's pieces itself.
 
 Builds: Ashita v4 plugin, Windower 4 addon.
 
@@ -33,6 +33,14 @@ Summons such as Carbuncle are drawn with a stair-stepped outline. The PS2 versio
 | https://github.com/user-attachments/assets/ef2ff32c-264b-4fc0-bbfc-3d6319ae7ff3 |
 | PS2 at 3x resolution, PC with no fix, PC with portfix |
 
+### Sphere-map shine
+
+Metal parts of some models, such as Warlord Rojgnoj's gold armour, reflect a sphere map. On the PC the reflection reads the wrong part of the map at half the PS2 strength, so the metal looks dull. The fix restores the PS2 shine.
+
+| PC fix off, PC fix on, PS2 |
+|---|
+| ![Warlord Rojgnoj: fix off, fix on, PS2](media/shine-off-on-ps2.jpg) |
+
 ### Disintegrate
 
 Some effects break a model up, most notably the Shadow Lord's change of form in the Throne Room. On the PS2 the first form comes apart into dark shards with purple smoke. On the PC it stays whole. The fix restores the break-up, smoke and haze.
@@ -51,6 +59,7 @@ Ashita: `/portfix`. Windower: `//portfix` in chat, `portfix` in the console.
 | `/portfix` | List fixes and their state. |
 | `/portfix water [on\|off]` | Black water fix. No argument toggles. |
 | `/portfix halo [on\|off]` | Summon halo fix. No argument toggles. |
+| `/portfix shine [on\|off]` | Sphere-map shine fix. No argument toggles. |
 | `/portfix disint [on\|off]` | Disintegrate effect fix. No argument toggles. |
 | `/portfix help` | List commands. |
 

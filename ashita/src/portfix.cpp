@@ -53,7 +53,7 @@ public:
     }
     bool Direct3DDrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, CONST void* data, UINT stride) override { return OnDrawPrimitiveUP(t, count, data, stride); }
 
-    // /portfix [help] | /portfix <water|halo|disint> [on|off]
+    // /portfix [help] | /portfix <water|halo|shine|disint> [on|off]
     bool HandleCommand(int32_t mode, const char* command, bool injected) override
     {
         std::vector<std::string> args;
@@ -61,9 +61,9 @@ public:
             return false;
         const std::string sub = args.size() > 1 ? args[1] : "";
         const std::string arg = args.size() > 2 ? args[2] : "";
-        if (sub == "water" || sub == "halo")
+        if (sub == "water" || sub == "halo" || sub == "shine")
         {
-            bool& on = sub == "water" ? m_Water : m_Halo;
+            bool& on = sub == "water" ? m_Water : sub == "halo" ? m_Halo : m_Shine;
             on       = arg == "on" ? true : arg == "off" ? false : !on;
             if (sub == "water")
                 SetWater(on);
@@ -81,6 +81,7 @@ public:
         {
             Print(std::string("water - ") + (m_Water ? "on" : "off"));
             Print(std::string("halo - ") + (m_Halo ? "on" : "off"));
+            Print(std::string("shine - ") + (m_Shine ? "on" : "off"));
             Print(std::string("disint - ") + (m_Disint ? "on" : "off"));
         }
         else
@@ -88,6 +89,7 @@ public:
             Print("/portfix - list fixes and their state");
             Print("/portfix water [on|off] - black water fix");
             Print("/portfix halo [on|off] - summon halo fix");
+            Print("/portfix shine [on|off] - sphere-map shine fix");
             Print("/portfix disint [on|off] - disintegrate effect fix");
             Print("/portfix help - this list");
         }

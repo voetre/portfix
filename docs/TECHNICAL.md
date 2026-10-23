@@ -33,7 +33,7 @@ The dll does not create a Direct3D object or device. Launchers hook Direct3DCrea
 
 The patch is not removed. The dll pins itself so it stays loaded after the addon unloads. On unload the addon turns all fixes off. Fix state changes from Lua are applied on the render thread at the next Present.
 
-The dll also exports `portfix_start` and `portfix_set(water, halo, disint)` for loading it without Lua.
+The dll also exports `portfix_start` and `portfix_set(water, halo, disint, shine)` for loading it without Lua.
 
 ## Black water
 
@@ -127,6 +127,48 @@ This is a correction of two parameters in the game's own effect, not a reimpleme
 - The PS2 GS sampling and blending are not emulated.
 - The result was compared by eye with PS2 recordings. It was not measured.
 
+## Sphere-map shine
+
+### Symptom
+
+Some model parts reflect an environment texture (the model's `evev` texture, for example Warlord Rojgnoj's gold plates in Qu'Bia Arena cutscene 32004). On the PS2 the gold is bright, with a light centre on faces turned to the camera. On the PC it is dull and dark.
+
+### Mechanism on the PS2
+
+The model is drawn, then drawn again with the environment texture. The second pass blends Cs x Ad + Cd: the texture colour times the destination alpha, added to the frame. The colour is 0x80 x strength / 255, where strength is a per-batch byte in the model's material table. The destination alpha is the alpha the first pass wrote, the model texture's alpha, on the GS scale where 0x80 is 1.0 and 0xFF is about 2.0. The texture coordinates are u = 0.5 + 0.5 nx, v = 0.5 - 0.5 ny, from the camera-space normal.
+
+The mapping and the scale were measured in PCSX2 by replacing the environment texture in EE RAM with a coordinate gradient and by setting the strength bytes to 255.
+
+### Draw on the PC
+
+One draw does both passes:
+
+- Stage 0: model texture x diffuse x 2. Alpha: texture alpha x TEXTUREFACTOR alpha x 2, where TEXTUREFACTOR alpha is strength / 2.
+- Stage 1: MODULATEALPHA_ADDCOLOR (current + current alpha x environment texture). Texture coordinates CAMERASPACENORMAL, COUNT3, through an identity texture matrix (with _33 = 0, _43 = -1), clamped.
+
+### Cause
+
+- The texture matrix maps the normal straight to (u, v) = (nx, ny). Only one quarter of the sphere map is used, and a face turned to the camera reads the map's dark corner instead of its centre.
+- Stage 0 alpha is texture alpha x strength on the 0xFF = 1.0 scale. The PS2 uses the 0x80 = 1.0 scale for the destination alpha, so the PC adds half the reflection.
+
+The strengths and the environment texture are the same as on the PS2.
+
+### Fix
+
+1. Detect the draw: DrawIndexedPrimitive with stage 1 COLOROP MODULATEALPHA_ADDCOLOR, arguments CURRENT and TEXTURE, and TEXCOORDINDEX CAMERASPACENORMAL | 1.
+2. Set the stage 1 texture matrix to u = 0.5 nx + 0.5, v = -0.5 ny + 0.5.
+3. Stage 1: TEXTURE MODULATE2X (CURRENT | ALPHAREPLICATE) into TEMP. The stage alpha is the game's own. Stage 2: CURRENT + TEMP, alpha from TEMP. Stage 3 off.
+4. Draw, then restore the states and the matrix.
+
+The fix needs D3DPMISCCAPS_TSSARGTEMP and three blend stages. Without them the game's draw is left alone.
+
+### Faithfulness
+
+- The PS2 adds the reflection after the first pass is blended and fogged. The PC adds it inside the same draw, so fog applies to both.
+- The PS2 destination alpha is taken after the alpha test. The PC uses the stage 0 alpha directly. These are the same for opaque parts.
+- The GS clamps each pass to 0xFF. The PC clamps the reflection term and the sum separately, with the same result for values in range.
+- Compared by eye with PS2 screenshots of the same cutscene frame.
+
 ## Disintegrate
 
 ### Symptom
@@ -195,7 +237,7 @@ The capture rule, piece motion, timings and draw states are the PS2's, read from
 
 ## Verification
 
-Tested on the PC client under Wine using both Ashitav4 and Windower 4 with DXVK at 1920x1080. Not tested on Windows. The disintegrate fix has been tested on Ashita only (Throne Room cutscene 32004); it is built for Windower but not yet run there.
+Tested on the PC client under Wine using both Ashitav4 and Windower 4 with DXVK at 1920x1080. Not tested on Windows. The disintegrate fix has been tested on Ashita only (Throne Room cutscene 32004), as has the shine fix (Qu'Bia Arena cutscene 32004). Both are built for Windower but not yet run there.
 
 ## Method
 
