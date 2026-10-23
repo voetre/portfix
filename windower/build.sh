@@ -12,7 +12,7 @@ OUT=build
 
 mkdir -p "$OUT/portfix"
 "$CXX" -std=c++17 -O2 -Wall -shared -static -static-libgcc -static-libstdc++ -I "$CORE" \
-    src/portfix.cpp "$CORE"/*.cpp -o "$OUT/portfix/portfix.dll" -Wl,--enable-stdcall-fixup -s
+    src/portfix.cpp "$CORE"/*.cpp -o "$OUT/portfix/portfix.dll" -lwinhttp -Wl,--enable-stdcall-fixup -s
 cp portfix/portfix.lua "$OUT/portfix/"
 
 echo "Built $OUT/portfix"

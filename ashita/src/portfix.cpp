@@ -2,6 +2,9 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "Ashita.h"
 #include "fixes.h"
+#include "update.h"
+
+#include <cstdlib>
 
 #include <string>
 #include <vector>
@@ -9,6 +12,7 @@
 class PortFix final : public IPlugin, public Fixes
 {
     IAshitaCore* m_AshitaCore = nullptr;
+    bool m_UpdateSeen         = false; // the release check's result was shown (or there was none)
 
     // The device calls come back through Ashita's hooks; Fixes ignores them while it draws.
     void RawDrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count) override { m_Device->DrawPrimitive(t, start, count); }
@@ -27,7 +31,7 @@ public:
     const char* GetAuthor(void) const override { return "voetre"; }
     const char* GetDescription(void) const override { return "Fixes for graphics the PC port draws wrong."; }
     const char* GetLink(void) const override { return "https://github.com/voetre/portfix"; }
-    double GetVersion(void) const override { return 1.1; }
+    double GetVersion(void) const override { return std::atof(PORTFIX_VERSION); }
     // Early, so the fixes see the game's draws before other plugins act on them.
     int32_t GetPriority(void) const override { return -10; }
     uint32_t GetFlags(void) const override { return static_cast<uint32_t>(Ashita::PluginFlags::UseCommands | Ashita::PluginFlags::UseDirect3D); }
@@ -35,6 +39,7 @@ public:
     bool Initialize(IAshitaCore* core, ILogManager* logger, const uint32_t id) override
     {
         m_AshitaCore = core;
+        Update::Start();
         return true;
     }
     void Release(void) override { Fixes::Release(); }
@@ -45,7 +50,23 @@ public:
             Print(std::string("disint - off: ") + error);
         return true;
     }
-    void Direct3DPresent(const RECT*, const RECT*, HWND, const RGNDATA*) override { OnPresent(); }
+    void Direct3DPresent(const RECT*, const RECT*, HWND, const RGNDATA*) override
+    {
+        OnPresent();
+        if (!m_UpdateSeen)
+            ShowUpdate();
+    }
+
+    // A newer release, told once you're in game (chat before that is lost).
+    void ShowUpdate(void)
+    {
+        auto mem = m_AshitaCore->GetMemoryManager();
+        if (!Update::Done() || mem->GetParty()->GetMemberServerId(0) == 0 || mem->GetPlayer()->GetIsZoning() != 0)
+            return;
+        if (const char* msg = Update::Take())
+            Print(msg);
+        m_UpdateSeen = true;
+    }
     bool Direct3DDrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count) override { return OnDrawPrimitive(t, start, count); }
     bool Direct3DDrawIndexedPrimitive(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count) override
     {

@@ -35,6 +35,10 @@ The patch is not removed. The dll pins itself so it stays loaded after the addon
 
 The dll also exports `portfix_start` and `portfix_set(water, halo, disint, shine)` for loading it without Lua.
 
+### Release check
+
+`core/update.cpp` runs once on load, on its own thread: a WinHTTP GET of `https://api.github.com/repos/voetre/portfix/releases/latest` with a 5 second timeout. The `tag_name` (without its leading `v`) is compared number by number with `PORTFIX_VERSION` in `core/update.h`. If it is newer, the message waits until the player is in game: Ashita checks at each Present, and the Windower addon calls `update()` every 5 seconds. Any failure (no network, rate limit, unexpected reply) ends the check without a message. The thread holds a reference on the dll while it runs.
+
 ## Black water
 
 ### Symptom

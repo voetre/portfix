@@ -31,6 +31,25 @@ local function apply()
 end
 apply()
 
+-- A newer release on GitHub, told once you're logged in. The dll makes one request from start(); this only asks
+-- the dll for its answer.
+local function check_update()
+    if not core or not core.update then
+        return
+    end
+    if windower.ffxi.get_info().logged_in then
+        local result = core.update()
+        if type(result) == 'string' then
+            log(result)
+            return
+        elseif result then
+            return
+        end
+    end
+    coroutine.schedule(check_update, 5)
+end
+check_update()
+
 windower.register_event('unload', function()
     if core then
         core.set(false, false, false, false)

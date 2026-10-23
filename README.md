@@ -65,6 +65,10 @@ Ashita: `/portfix`. Windower: `//portfix` in chat, `portfix` in the console.
 
 Settings are not saved. All fixes are on each time the plugin loads.
 
+## Updates
+
+On load, portfix asks GitHub for the latest release. If it is newer than the one installed, a line in chat says so once you are in game. Nothing else is sent, and nothing is downloaded.
+
 ## Licence
 
 MIT.

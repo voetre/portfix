@@ -34,7 +34,7 @@ PATH="$LLVM_BIN:$PATH" clang-cl --target=i686-pc-windows-msvc /nologo /std:c++20
     /imsvc "$XWIN/sdk/include/um" /imsvc "$XWIN/sdk/include/shared" \
     /I "$OUT/sdk" /I "$OUT/sdk/d3d8/includes" /I "$CORE" /Fo"$OUT/" src/*.cpp "$CORE"/*.cpp \
     /link /def:src/portfix.def /libpath:"$OUT/libalias" /libpath:"$XWIN/crt/lib/x86" \
-    /libpath:"$XWIN/sdk/lib/um/x86" /libpath:"$XWIN/sdk/lib/ucrt/x86" user32.lib /out:"$OUT/portfix.dll"
+    /libpath:"$XWIN/sdk/lib/um/x86" /libpath:"$XWIN/sdk/lib/ucrt/x86" user32.lib winhttp.lib /out:"$OUT/portfix.dll"
 
 echo "Built $OUT/portfix.dll"
 if [ "${1:-}" = install ]; then

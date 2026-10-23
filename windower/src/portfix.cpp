@@ -1,6 +1,7 @@
 // portfix for Windower 4: a Lua C module loaded by addons/portfix/portfix.lua. Windower wraps the Direct3D 8 device,
 // so the draw calls are taken from the vtable of the real device under the wrapper and forwarded to the fixes in core/.
 #include "fixes.h"
+#include "update.h"
 
 #include <atomic>
 
@@ -179,6 +180,7 @@ namespace
     // start() -> true, or false and the reason
     int LuaStart(lua_State* L)
     {
+        Update::Start();
         const char* error = Install();
         lua_pushboolean(L, error == nullptr);
         if (error == nullptr)
@@ -196,6 +198,17 @@ namespace
         g_WantShine  = lua_toboolean(L, 4) != 0;
         return 0;
     }
+
+    // update() -> the message about a newer release (once), true when the check is over with nothing to say,
+    // false while it runs
+    int LuaUpdate(lua_State* L)
+    {
+        if (const char* msg = Update::Take())
+            lua_pushstring(L, msg);
+        else
+            lua_pushboolean(L, Update::Done());
+        return 1;
+    }
 }
 
 // Plain C entry points, for loading the dll without Lua (test harnesses).
@@ -212,15 +225,15 @@ extern "C" __declspec(dllexport) void portfix_set(const int water, const int hal
     g_WantShine  = shine != 0;
 }
 
-// package.loadlib(path, "luaopen_portfix")() -> { start = fn, set = fn }
+// package.loadlib(path, "luaopen_portfix")() -> { start = fn, set = fn, update = fn }
 extern "C" __declspec(dllexport) int luaopen_portfix(lua_State* L)
 {
     const HMODULE lua = GetModuleHandleW(L"LuaCore.dll");
     if (lua == nullptr || !Import(lua, "lua_createtable", lua_createtable) || !Import(lua, "luaL_register", luaL_register) ||
         !Import(lua, "lua_toboolean", lua_toboolean) || !Import(lua, "lua_pushboolean", lua_pushboolean) || !Import(lua, "lua_pushstring", lua_pushstring))
         return 0;
-    static const luaL_Reg funcs[] = {{"start", LuaStart}, {"set", LuaSet}, {nullptr, nullptr}};
-    lua_createtable(L, 0, 2);
+    static const luaL_Reg funcs[] = {{"start", LuaStart}, {"set", LuaSet}, {"update", LuaUpdate}, {nullptr, nullptr}};
+    lua_createtable(L, 0, 3);
     luaL_register(L, nullptr, funcs);
     return 1;
 }
