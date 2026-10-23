@@ -133,9 +133,6 @@ This is a correction of two parameters in the game's own effect, not a reimpleme
 
 Some effects break a model up into pieces. The best known is the Shadow Lord's change of form in the Throne Room (cutscene 32004, effect file 16/98). On the PS2 the first form comes apart into dark textured shards that tumble away. Purple smoke rises from where they break off, with a faint heat haze. Over about 8 seconds the second form is left. On the PC there is a short purple burst. The first form stays whole and normally lit until it fades out. The same op is used by the Eald'Narche, Kam'lanaut and Selh'teus model changes.
 
-Video, 20 seconds of cutscene 32004. Top: PS2. Bottom left: PC, fix off. Bottom right: PC, fix on.
-
-<!-- docs/disintegrate-fix.mp4: upload to the GitHub README editor and put the attachment URL here -->
 
 | PS2 | PC, fix off | PC, fix on |
 |---|---|---|
