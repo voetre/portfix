@@ -1,3 +1,5 @@
+
+https://github.com/user-attachments/assets/a4cede68-3c31-4334-9e31-f83d5efd8a8f
 # portfix
 
 Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. The affected effects were written for the PS2 renderer and were not adapted to PC depth buffers and resolutions.
@@ -48,8 +50,8 @@ Shiny weapons such as the Claymore gleam on the PS2 as they catch the light. On 
 
 | Comparison |
 |---|
-| ![Claymore: PS2, PC with no fix, PC with portfix](media/weapon-shine-ps2-off-on.jpg) |
-| PS2 at 3x resolution, PC with no fix, PC with portfix. Video: [media/weapon-shine.mp4](media/weapon-shine.mp4) |
+| https://github.com/user-attachments/assets/b21fc8d0-696a-4abd-a1d5-a881a23c1e8c |
+| PS2 at 3x resolution, PC with no fix, PC with portfix. |
 
 ### Disintegrate
 
