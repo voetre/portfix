@@ -43,7 +43,7 @@ The dll also exports `portfix_start` and `portfix_set(water, halo, disint, shine
 
 ### Symptom
 
-Layered water renders black near the camera. Distant water renders correctly. Seen in Port Bastok and Bastok Markets.
+Layered water renders black near the camera. Distant water renders correctly. Seen in Port Bastok and Bastok Markets. There are two causes. The one below is Port Bastok's. Bastok Markets' canals have a second one, described after the fix.
 
 ### Draw sequence
 
@@ -75,6 +75,25 @@ Forcing a 16-bit depth buffer was tested. It restores the tint at a distance, wi
 The resulting order is 1, 3, 2. A held draw is also released before the next DrawIndexedPrimitive or DrawPrimitiveUP. A held draw still pending at Present is dropped.
 
 An earlier version drew layer 2 in place with Z-write off. Layer 3 then covered it fully, because its alpha saturates under MODULATE4X. The water showed flat tint with no ripples.
+
+### Second cause: the water pass's near plane (Bastok Markets)
+
+Reported after v1.2: Bastok Markets' canals still went black with the camera close, for example on the stairs down to Bastok Mines. The fix above did not apply there. The canal's ripple layer has Z-write off, so it does not match the detection, and the canal fails for a different reason.
+
+The canal has an opaque plane of its own: dark, lit tiles (FVF XYZ, NORMAL, DIFFUSE, TEX1, lighting on, no blend, Z-write on) drawn with the rest of the scene. The scrolling water layers lie 0.0415 below it. The game draws the scene with a projection near plane of 0.1 and the water pass with a near plane of 0.1003 (projection `_43` -0.1000 against -0.1003), and both passes share one depth buffer. With z/w = 1 - n/d, the larger near plane puts every water fragment at the depth of a point 0.3% closer. Along a view ray the 0.0415 gap is 0.0415 × distance / camera height. The water passes LESSEQUAL only while that is less than 0.3% of the distance, so only with the camera more than 0.0415 / 0.003 ≈ 14 yalms above the water. The gap and the bias both grow with distance, so the result does not depend on distance: below about 14 yalms the whole canal turns black at once.
+
+Measured on the Markets stairs: black with the camera 11.1 yalms above the water, correct at 14.7. 16-bit depth also restores the colour at 11.1, because it rounds the two depths to the same value.
+
+### Fix, second part
+
+Every scrolling water layer is drawn 0.05 yalms higher: FVF XYZ, NORMAL, DIFFUSE, TEX1, lighting off, alpha blend on, stage 0 texture transform COUNT2. The held ripple layer from the first part counts as one of these. The water's world matrix includes the view, so the lift is taken along the matrix's second row (world down; FFXI's y points down). Lifted 0.05, the layers sit above the opaque plane, so they pass at any camera height and distance. 0.05 yalms is less than a pixel at play distances. The opaque plane and everything else are drawn as they are.
+
+Checked in the harness:
+- Bastok Markets, eight camera positions down the stairs: the canal is blue-teal with the fix and grey-black without, at every height below about 14 yalms. Above it, nothing changes.
+- Port Bastok's sea: the same colour as v1.2 (mean RGB 54,63,71 against 54,63,72; 41,43,44 with the fix off).
+- Windurst Waters, Port Windurst, Southern San d'Oria, Bastok Mines: no visible change in views without water.
+
+Not a bug: from low down by the Mines stairs, the canal right in front of the camera stays dark grey with the fix on or off, and with any lift up to 1.0. Projecting every water layer's vertices onto that frame shows why: the zone's water mesh has a hole there, so only the canal's opaque plane is drawn, and the ripple layer's vertex alpha fades to 0 toward the hole's edge, which gives the soft teal-to-dark boundary. No other draw covers the hole. This is authored data, and a PS2 frame from low down shows the same near-black water.
 
 ### Faithfulness
 
@@ -172,6 +191,76 @@ The fix needs D3DPMISCCAPS_TSSARGTEMP and three blend stages. Without them the g
 - The PS2 destination alpha is taken after the alpha test. The PC uses the stage 0 alpha directly. These are the same for opaque parts.
 - The GS clamps each pass to 0xFF. The PC clamps the reflection term and the sum separately, with the same result for values in range.
 - Compared by eye with PS2 screenshots of the same cutscene frame.
+
+## Reflection-vector shine
+
+### Symptom
+
+Shiny weapons and armour (a Claymore on the back in the Mog House, from a user's report) gleam on the PS2: from below, the blade turns bright gold-white. On the PC they stay flat grey from any angle.
+
+### Mechanism on the PS2
+
+Batches whose material byte +7 is set get a second pass after the base pass (FUN_002b6940): Cs x Ad + Cd, with one 64x64 highlight texture shared by every such batch (a white spot fading out from the centre). The vertex colour is the light's colour x strength / 256 (0x80 = 1.0): 92 70 38 for strength 100 under a lamp of 1.85 1.40 0.76. The destination alpha is the base pass's texture alpha (0x80 = 1.0).
+
+The texture coordinates are the sphere-map position of the world reflection vector in a frame fixed to the light: brightest when the eye's reflection points at the light, and fading out over about 45 degrees (radius 0.6 x sin(angle / 2), 0.5 being the texture's edge).
+
+Measured from PCSX2 GS dumps of the same Mog House frame at three camera positions: the pass's texture decoded from the dump, its ST/Q paired with the PC's vertices (by base UV, position and normal), and candidate mappings fitted. Moving the camera sideways without turning it changes ST, so it follows the reflection, not the normal; one world-fixed frame fits all three positions (camera-fixed fits worse).
+
+### Draw on the PC
+
+Mode 1 of the skinned-part draw (material float +0x28 set):
+
+- Stage 1: MODULATEALPHA_ADDCOLOR of a global cube ("cubemap spec"), texture coordinates CAMERASPACEREFLECTIONVECTOR, COUNT3, through diag(1, -1, -1) x camera-to-world x the light's view (a LookAt from light 0).
+- The cube's -Z face (towards the light) is the PS2's spot texture, pixel for pixel; the other faces are black.
+- Stage 0 alpha: texture alpha x TEXTUREFACTOR alpha x 2, TEXTUREFACTOR alpha = strength / 2.
+
+### Cause
+
+- The diag(1, -1, -1) turns the reflection over. The spot is found when the reflection points away from the light: under a ceiling lamp, at the floor. Without it, the spot's world direction is the light's.
+- Pasting the sphere-map texture onto a cube face halves its spread: a face's radius goes with tan(angle), the PS2's with 0.6 x sin(angle / 2).
+- The highlight is white and at half strength: the light's colour isn't in it, and the stage-0 alpha is the PS2 alpha read on the 0xFF = 1.0 scale (as for the sphere-map shine).
+
+### Fix
+
+1. Detect the draw: DrawIndexedPrimitive with stage 1 MODULATEALPHA_ADDCOLOR (CURRENT, TEXTURE), TEXCOORDINDEX CAMERASPACEREFLECTIONVECTOR | 1, and a cube on stage 1.
+2. Take the flip out of the stage 1 texture matrix (negate its second and third rows).
+3. Replace the cube with one built once from the game's own: for each texel, the angle from -Z gives the radius 0.6 x sin(angle / 2), sampled from the game's -Z face the same way round.
+4. Stage 1: cube x TFACTOR x 4 into TEMP, with TFACTOR's colour set to half light 0's diffuse (its alpha stays the game's). Stage 2: CURRENT + CURRENT alpha x TEMP, alpha from TEMP. Stage 3 off.
+5. Draw, then restore the states, matrix, texture and TFACTOR.
+
+It needs D3DPMISCCAPS_TSSARGTEMP, three blend stages, MODULATE4X and cube textures; without them the game's draw is left alone. The cube is built from the game's texture at run time, so nothing of the game's is shipped.
+
+### Faithfulness
+
+- The PS2's light frame lies about 26 degrees from light 0's direction in the measured scene; the fix keeps the game's light 0. Pinned to light 0, the fit's error doubles (0.063 against 0.034 in ST), so the PS2 uses a different light vector there, not yet identified.
+- The spread (0.6) comes from the fit; it agrees within about 20% with the fit pinned to light 0 (0.47).
+- As with the sphere-map shine, the PC adds the highlight inside the same draw, so fog applies to it.
+- Checked at the matched Mog House view: the PC's highlight now appears from below and not from above, as on the PS2 (camera sweep 40 degrees above to 60 below). A greatsword whose shine draws (hf_2hs4_) changes only a little, as on the PS2.
+
+### Shine batches the PC files lost
+
+In 2,027 meshes (almost all weapons: the Claymore, swords, claws, katana, axes) the PC file's last material has no draw after it. The conversion lost or misplaced the batch boundaries:
+
+- Merged: `M(plain) T D(110) M(shine) end`. The PS2 has two batches (the Claymore: 78 plain and 32 shine triangles), and the PC kept the triangles in order but put both in one draw.
+- Misfiled: the draws are split but filed under the wrong materials. hf_swo8_ draws 44, 22, 46 and 8 triangles under four plain materials and leaves the shine one empty; on the PS2 the 44 are the shine batch.
+
+Either way the shine batch draws as plain. Working meshes draw after every material, and the PC material records hold the PS2 material's settings (sphere pass at +0x10, strength at +0x26, highlight at +0x2a), so equal materials are interchangeable.
+
+The boundary isn't in the PC data: the batch's triangles share no vertices with the rest, but neither do the PS2's strip chunks inside a batch. So it comes from the PS2:
+
+1. A capture on the PS2 wears every main-hand model on the PS2 character and reads each loaded mesh's draw list: per entry, the material, its triangle count and the material's settings.
+2. A generator matches each such PC mesh to the PS2 mesh of the same name. It then works out which settings each run of PC triangles should draw with: an exact split of a merged group in the PS2's order, or else each group to one setting, with sums within a triangle of the PS2's and a unique best. It rules out PS2 meshes that need a setting the PC mesh has no material for, and requires the answer to use the left-over material.
+3. portfix/core/shinesplit.h holds the result. Each entry is FNV-1a of (texture name, triangle and material counts, the PC grouping, the triangle records) with segments of (material, triangles) in the PC's triangle order. It holds only our counts and a hash, nothing of the game's.
+
+At run time the skinned-part hook (the same call Disintegrate patches) looks up each new part's draw stream once. On a hit it builds a copy, one draw per segment (material record, texture record, the original triangles in order, at most 128 per draw), and points the part (+0x36) at it. Turning shine off points the parts back. Copies are never freed, since a part may still use one after portfix is gone.
+
+Coverage: 1,401 of the 2,027 meshes are fixed (97 table entries, since many DATs carry the same mesh). The rest are left as the game draws them:
+
+- 623 have no PS2 mesh that fits; most are on the PS2 without the shine batch (hf_sti1_ is 110 plain triangles there).
+- 135 have more than one fit.
+- 22 use several textures.
+
+Meshes with no left-over material that still differ from the PS2 (120) aren't touched. Their name can match a different model's PS2 mesh, since the PS2 copy has lost the name's first four characters, and there's no defect in the PC data to confirm one.
 
 ## Disintegrate
 

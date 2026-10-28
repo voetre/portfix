@@ -32,6 +32,7 @@ namespace
     std::atomic<bool> g_WantShine{true};
     std::atomic<bool> g_WantDisint{true};
     bool g_DisintFailed = false; // the patch couldn't be made (another client version): not tried again
+    bool g_SplitFailed  = false; // the same, for the shine fix's merged batches
 
     class WindowerFixes final : public Fixes
     {
@@ -62,6 +63,8 @@ namespace
             // The game's code is patched here too: the render thread is the one that runs it.
             if (const bool on = g_WantDisint; on != g_Fixes.m_Disint && !g_DisintFailed)
                 g_DisintFailed = g_Fixes.SetDisint(on) != nullptr;
+            if (const bool on = g_WantShine; on != g_Fixes.m_Split && !g_SplitFailed)
+                g_SplitFailed = g_Fixes.SetSplit(on) != nullptr;
         }
         return g_Present(d, src, dst, wnd, dirty);
     }

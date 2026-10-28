@@ -15,6 +15,7 @@ public:
     bool m_Halo                = true;
     bool m_Shine               = true;
     bool m_Disint              = false; // set through SetDisint: it patches the game's code
+    bool m_Split               = false; // set through SetSplit: shine batches the PC files merged (patches the skinning call)
 
     virtual ~Fixes() = default;
     virtual void RawDrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count)                  = 0;
@@ -29,6 +30,7 @@ public:
     void SetWater(bool on);
     // nullptr when it's in the state asked for, or the reason it couldn't be turned on.
     const char* SetDisint(bool on);
+    const char* SetSplit(bool on);
     void Release(void);
 
 private:
@@ -43,13 +45,27 @@ private:
     IDirect3DSurface8* m_HaloLow     = nullptr;
 
     bool WaterSurface(void) const;
+    static constexpr float WaterLift = 0.05f; // yalms; Bastok Markets' water lies 0.0415 under the canal's plane
+    bool WaterLayer(void) const;
+    void WaterDraw(D3DPRIMITIVETYPE t, UINT start, UINT count, bool lift);
     bool WaterHold(D3DPRIMITIVETYPE t, UINT start, UINT count);
     void WaterFlush(void);
     void WaterRelease(void);
     bool HaloDraw(D3DPRIMITIVETYPE t, UINT count, const void* data);
 
     int m_ShineTemp = -1; // the device has D3DTA_TEMP and three stages: 1, not: 0, not asked yet: -1
+    bool m_SpotOps  = false; // and MODULATE4X and cube textures (set with m_ShineTemp)
     bool ShineDraw(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count);
+    bool ShineCaps(void);
+    // The highlight cube for reflection-vector shine: rebuilt from the game's own cube (m_SpotFrom) with the PS2's
+    // spread; SpotSpread is the spot texture's radius (0.5 = its edge) per sin(angle / 2) from the light.
+    IDirect3DCubeTexture8* m_SpotCube    = nullptr;
+    IDirect3DBaseTexture8* m_SpotFrom    = nullptr;
+    static constexpr float SpotSpread    = 0.6f;
+    static constexpr UINT SpotSize       = 128;
+    bool SpotBuild(IDirect3DCubeTexture8* game);
+    void SpotRelease(void);
+    bool SpotDraw(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count);
 
     // disint.cpp
     const char* DisintInstall(void);

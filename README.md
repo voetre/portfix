@@ -4,7 +4,7 @@ Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. Th
 
 Initially created to fix the Port Bastok water, it has evolved into fixing other effects as well.
 
-All fixes are on by default. The water, halo and shine fixes only change the order, texture, position or blend stages of draws the game already makes. The disintegrate fix restores a PS2 effect the PC skips: it patches two places in the game's code and draws the effect's pieces itself.
+All fixes are on by default. The water, halo and shine fixes only change the order, texture, position, batching or blend stages of draws the game already makes. The disintegrate fix restores a PS2 effect the PC skips: it patches two places in the game's code and draws the effect's pieces itself.
 
 Builds: Ashita v4 plugin, Windower 4 addon.
 
@@ -42,6 +42,15 @@ Metal parts of some models, such as Warlord Rojgnoj's gold armour, reflect a sph
 | ![Warlord Rojgnoj: PS2, PC with no fix, PC with portfix](media/shine-ps2-off-on.jpg) |
 | PS2 at 3x resolution, PC with no fix, PC with portfix |
 
+### Weapon shine
+
+Shiny weapons such as the Claymore gleam on the PS2 as they catch the light. On the PC they stay flat grey: the highlight is aimed away from the light at half strength, and in many weapon models the PC files lost the boundary between the plain and shiny parts, so the shiny part is drawn as plain. The fix aims the highlight at the light with the PS2's spread and colour, and draws each part with its own material again.
+
+| Comparison |
+|---|
+| ![Claymore: PS2, PC with no fix, PC with portfix](media/weapon-shine-ps2-off-on.jpg) |
+| PS2 at 3x resolution, PC with no fix, PC with portfix. Video: [media/weapon-shine.mp4](media/weapon-shine.mp4) |
+
 ### Disintegrate
 
 Some effects break a model up, most notably the Shadow Lord's change of form in the Throne Room. On the PS2 the first form comes apart into dark shards with purple smoke. On the PC it stays whole. The fix restores the break-up, smoke and haze.
@@ -60,7 +69,7 @@ Ashita: `/portfix`. Windower: `//portfix` in chat, `portfix` in the console.
 | `/portfix` | List fixes and their state. |
 | `/portfix water [on\|off]` | Black water fix. No argument toggles. |
 | `/portfix halo [on\|off]` | Summon halo fix. No argument toggles. |
-| `/portfix shine [on\|off]` | Sphere-map shine fix. No argument toggles. |
+| `/portfix shine [on\|off]` | Sphere-map and weapon shine fixes. No argument toggles. |
 | `/portfix disint [on\|off]` | Disintegrate effect fix. No argument toggles. |
 | `/portfix help` | List commands. |
 

@@ -19,6 +19,8 @@
 #include <map>
 #include <vector>
 
+#include "shinesplit.h"
+
 namespace
 {
     constexpr float Tick    = 60.0f / 1000.0f; // effect ticks per millisecond
@@ -113,6 +115,9 @@ namespace
     void* s_Orig          = nullptr; // the game's case (do nothing)
     uint8_t* s_Stub       = nullptr; // our case
     float** s_Palette     = nullptr; // the skinning palette pointer skin_part_b reads
+    const uint8_t* s_SkinFn = nullptr; // skin_part_b
+    int s_SkinUsers         = 0;       // who needs the skinning call hooked: 1 disintegration, 2 the shine split
+    bool s_SplitOn          = false;
 
     const float* s_Part = nullptr; // the palette of the part being skinned, when it's a capturing actor's
     // The positions go to the buffer at mesh +0x44 (locked to +0x8e) and the normals to +0x48 (+0x92); for parts
@@ -321,11 +326,14 @@ namespace
     // vertex buffer the game locked (D3DLOCK_DISCARD); reading that back for the capture stalls (write-combined
     // memory: up to 60 ms a frame). For a capturing actor's part it writes to s_SkinPos instead, copied to the
     // buffer after. The palette it skins with says whose part it is.
+    void SplitPart(uintptr_t part);
     void __fastcall SkinHook(const uintptr_t part)
     {
+        if (s_SplitOn)
+            SplitPart(part);
         for (void*& vb : s_SkinVb)
             vb = nullptr;
-        const float* pal = *s_Palette;
+        const float* pal = (s_SkinUsers & 1) != 0 && s_Palette != nullptr ? *s_Palette : nullptr;
         s_Part           = pal != nullptr && s_Actors.count(pal) != 0 ? pal : nullptr;
         const auto mesh  = s_Part != nullptr ? *reinterpret_cast<const uintptr_t*>(part + 0x5E) : 0;
         const uint32_t n = mesh != 0 ? *reinterpret_cast<const uint32_t*>(mesh + 0x58) : 0;
@@ -354,27 +362,45 @@ namespace
             }
     }
 
-    // First match of a byte pattern ('?' = any byte) in FFXiMain's code.
-    const uint8_t* FindBytes(const char* pattern, const size_t length)
+    const IMAGE_NT_HEADERS* GameHeaders(const uint8_t* base)
+    {
+        return reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+    }
+
+    // Whether code lies in FFXiMain (not a hook another plugin put in its place).
+    bool InModule(const void* at)
+    {
+        const auto base = reinterpret_cast<const uint8_t*>(::GetModuleHandleA("FFXiMain.dll"));
+        const auto p    = static_cast<const uint8_t*>(at);
+        return base != nullptr && p >= base && p < base + GameHeaders(base)->OptionalHeader.SizeOfImage;
+    }
+
+    // First match of a byte pattern ('?' = any byte) in FFXiMain's code. With an entry, the match is that far
+    // into a function whose first bytes are the entry or a 5-byte jmp another plugin hooked it with, and the
+    // function's start is returned.
+    const uint8_t* FindBytes(const char* pattern, const size_t length, const char* entry = nullptr, const size_t lead = 0)
     {
         const auto base = reinterpret_cast<const uint8_t*>(::GetModuleHandleA("FFXiMain.dll"));
         if (base == nullptr)
             return nullptr;
-        const auto nt      = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+        const auto nt      = GameHeaders(base);
         const auto section = IMAGE_FIRST_SECTION(nt);
         for (WORD s = 0; s < nt->FileHeader.NumberOfSections; ++s)
         {
             if ((section[s].Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0)
                 continue;
-            const uint8_t* p   = base + section[s].VirtualAddress;
-            const uint8_t* end = p + section[s].Misc.VirtualSize - length - 4;
+            const uint8_t* p   = base + section[s].VirtualAddress + lead;
+            const uint8_t* end = base + section[s].VirtualAddress + section[s].Misc.VirtualSize - length - 4;
             for (; p < end; ++p)
             {
                 size_t n = 0;
                 while (n < length && (pattern[n] == '?' || p[n] == static_cast<uint8_t>(pattern[n])))
                     ++n;
-                if (n == length)
-                    return p;
+                if (n != length)
+                    continue;
+                const uint8_t* fn = p - lead;
+                if (lead == 0 || std::memcmp(fn, entry, lead) == 0 || (lead == 5 && fn[0] == 0xE9))
+                    return fn;
             }
         }
         return nullptr;
@@ -422,15 +448,249 @@ namespace
     }
 }
 
+namespace
+{
+    // skin_part_b (sub esp,50h / push ebx,ebp / push esi,edi / mov ebx,ecx / push 0 / mov [esp+20h],ebx / call).
+    // Its first five bytes may be another plugin's jmp hook, so match from push esi and accept either the original
+    // entry or a jmp there.
+    const char* SkinFind(void)
+    {
+        if (s_SkinFn != nullptr)
+            return nullptr;
+        static const char skin[]  = "\x56\x57\x8B\xD9\x6A\x00\x89\x5C\x24\x20\xE8";
+        static const char entry[] = "\x83\xEC\x50\x53\x55";
+        s_SkinFn                  = FindBytes(skin, sizeof(skin) - 1, entry, sizeof(entry) - 1);
+        return s_SkinFn != nullptr ? nullptr : "the skin function wasn't found";
+    }
+
+    // skin_part_b's call to its skinning (mov ecx,ebx / call <skinning>, 0x15C0 past its start) goes through
+    // SkinHook while anyone needs it: disintegration (1) or the shine split (2).
+    const char* SkinUse(const int who)
+    {
+        if (s_SkinCall == nullptr)
+        {
+            const char* why = SkinFind();
+            if (why != nullptr)
+                return why;
+            int32_t* call = nullptr;
+            for (const uint8_t* c = s_SkinFn; c < s_SkinFn + 0x400 && call == nullptr; ++c)
+                if (c[0] == 0x8B && c[1] == 0xCB && c[2] == 0xE8 && c + 7 + *reinterpret_cast<const int32_t*>(c + 3) == s_SkinFn + 0x15C0)
+                    call = reinterpret_cast<int32_t*>(const_cast<uint8_t*>(c + 3));
+            if (call == nullptr)
+                return "the skinning call wasn't found";
+            s_Skin         = reinterpret_cast<SkinFn>(reinterpret_cast<uint8_t*>(call + 1) + *call);
+            const auto rel = static_cast<int32_t>(reinterpret_cast<const uint8_t*>(&SkinHook) - reinterpret_cast<const uint8_t*>(call + 1));
+            if (!Poke(call, &rel, 4))
+                return "couldn't patch the skinning call";
+            s_SkinCall = call;
+        }
+        s_SkinUsers |= who;
+        return nullptr;
+    }
+
+    void SkinUnuse(const int who)
+    {
+        s_SkinUsers &= ~who;
+        if (s_SkinUsers != 0 || s_SkinCall == nullptr)
+            return;
+        const auto rel = static_cast<int32_t>(reinterpret_cast<const uint8_t*>(s_Skin) - reinterpret_cast<const uint8_t*>(s_SkinCall + 1));
+        Poke(s_SkinCall, &rel, 4);
+        s_SkinCall = nullptr;
+    }
+
+    // Shine split. Some PC model files lost or misplaced batch boundaries in conversion: the PS2 draws a mesh as one
+    // draw per material, but the PC file put a later batch's triangles into the draw before it and left that batch's
+    // material at the end of the stream with nothing to draw (M0 T D(n) M1, against the right M0 T D(a) M1 T D(b)),
+    // or filed whole draws under the wrong material. The PS2's batches are in ShineSplits (shinesplit.h, measured on
+    // the PS2), keyed by a hash of the texture name, the counts, the PC grouping and the triangles: (material,
+    // triangles) in the stream's triangle order. A part whose stream matches gets a rebuilt copy, one draw per
+    // segment, with the original triangles in their order; the part points at the copy (+0x36) from then on.
+    struct SplitDone
+    {
+        uintptr_t part;
+        uint8_t* from;
+        uint8_t* to;
+    };
+    std::map<const uint8_t*, uint8_t*> s_SplitStreams; // original stream -> its rebuilt copy, or nullptr (left as it is)
+    std::vector<SplitDone> s_SplitParts;
+
+    uint32_t Fnv(const uint8_t* p, const size_t n, uint32_t h = 0x811c9dc5)
+    {
+        for (size_t i = 0; i < n; ++i)
+            h = (h ^ p[i]) * 0x01000193;
+        return h;
+    }
+
+    uint8_t* SplitStream(const uint8_t* s)
+    {
+        // walk it: materials (op 0x80n1.., 0x2e bytes), one texture (0x80n0, 0x12), triangle lists (0x54) only
+        std::vector<const uint8_t*> mats;
+        std::vector<std::pair<uint16_t, uint16_t>> groups; // (material, triangles), consecutive draws merged
+        const uint8_t* tex = nullptr;
+        std::vector<uint8_t> tris;
+        size_t p = 0;
+        for (;;)
+        {
+            if (!Readable(s + p, 4))
+                return nullptr;
+            uint16_t op, n;
+            std::memcpy(&op, s + p, 2), std::memcpy(&n, s + p + 2, 2);
+            if (op == 0xffff)
+                break;
+            if (op & 0x8000)
+            {
+                const int k = op >> 4 & 0xf;
+                if (k == 0)
+                {
+                    if (tex != nullptr && std::memcmp(tex + 6, s + p + 6, 12) != 0)
+                        return nullptr; // several textures: not this case
+                    tex = s + p, p += 0x12;
+                }
+                else if (k == 1)
+                    mats.push_back(s + p), p += 0x2e;
+                else
+                    return nullptr;
+            }
+            else if (op == 0x54)
+            {
+                if (mats.empty() || !Readable(s + p, 4 + n * 30u))
+                    return nullptr;
+                const auto mi = static_cast<uint16_t>(mats.size() - 1);
+                if (!groups.empty() && groups.back().first == mi)
+                    groups.back().second = static_cast<uint16_t>(groups.back().second + n);
+                else
+                    groups.emplace_back(mi, n);
+                tris.insert(tris.end(), s + p + 4, s + p + 4 + n * 30u), p += 4 + n * 30u;
+            }
+            else
+                return nullptr;
+            if (p > 0x40000)
+                return nullptr;
+        }
+        if (tex == nullptr || mats.size() < 2 || groups.empty())
+            return nullptr;
+        const uint16_t total = static_cast<uint16_t>(tris.size() / 30), nm = static_cast<uint16_t>(mats.size());
+        uint8_t name[12];
+        std::memcpy(name, tex + 6, 12);
+        size_t len = 12;
+        while (len > 0 && name[len - 1] == ' ')
+            --len;
+        size_t lead = 0;
+        while (lead < len && name[lead] == ' ')
+            ++lead;
+        uint32_t key = Fnv(name + lead, len - lead);
+        uint8_t word[4];
+        std::memcpy(word, &total, 2), std::memcpy(word + 2, &nm, 2);
+        key = Fnv(word, 4, key);
+        for (const auto& g : groups)
+            std::memcpy(word, &g.first, 2), std::memcpy(word + 2, &g.second, 2), key = Fnv(word, 4, key);
+        key = Fnv(tris.data(), tris.size(), key);
+        const ShineSplit* hit = nullptr;
+        for (const auto& e : ShineSplits)
+            if (e.key == key && e.n > 0)
+                hit = &e;
+        if (hit == nullptr)
+            return nullptr;
+        size_t sum = 0;
+        for (int i = 0; i < hit->n; ++i)
+        {
+            if (hit->mat[i] >= nm)
+                return nullptr;
+            sum += hit->tris[i];
+        }
+        if (sum != total)
+            return nullptr;
+        // rebuild: per segment, its material's record, the texture record, and its triangles in draws of up to 128
+        std::vector<uint8_t> out;
+        size_t at = 0;
+        for (int i = 0; i < hit->n; ++i)
+        {
+            out.insert(out.end(), mats[hit->mat[i]], mats[hit->mat[i]] + 0x2e);
+            out.insert(out.end(), tex, tex + 0x12);
+            for (size_t left = hit->tris[i]; left > 0;)
+            {
+                const uint16_t k = static_cast<uint16_t>((std::min)(left, static_cast<size_t>(128))), op = 0x54;
+                const uint8_t hdr[4] = {static_cast<uint8_t>(op), static_cast<uint8_t>(op >> 8), static_cast<uint8_t>(k), static_cast<uint8_t>(k >> 8)};
+                out.insert(out.end(), hdr, hdr + 4);
+                out.insert(out.end(), tris.begin() + at * 30, tris.begin() + (at + k) * 30);
+                at += k, left -= k;
+            }
+        }
+        out.push_back(0xff), out.push_back(0xff);
+        // never freed: a part may still point here after portfix is gone
+        auto* copy = static_cast<uint8_t*>(::HeapAlloc(::GetProcessHeap(), 0, out.size()));
+        if (copy != nullptr)
+            std::memcpy(copy, out.data(), out.size());
+        return copy;
+    }
+
+    void SplitPart(const uintptr_t part)
+    {
+        uint8_t* s = nullptr;
+        if (!Readable(reinterpret_cast<const void*>(part + 0x36), 4))
+            return;
+        std::memcpy(&s, reinterpret_cast<const void*>(part + 0x36), 4);
+        if (s == nullptr)
+            return;
+        auto it = s_SplitStreams.find(s);
+        if (it == s_SplitStreams.end())
+        {
+            bool ours = false;
+            for (const auto& e : s_SplitStreams)
+                ours = ours || e.second == s;
+            if (ours)
+                return;
+            it = s_SplitStreams.emplace(s, SplitStream(s)).first;
+        }
+        if (it->second == nullptr)
+            return;
+        std::memcpy(reinterpret_cast<void*>(part + 0x36), &it->second, 4);
+        s_SplitParts.push_back({part, s, it->second});
+    }
+
+    // Put the parts back on their own streams (only those still pointing at a copy of ours).
+    void SplitUndo(void)
+    {
+        for (const auto& d : s_SplitParts)
+        {
+            uint8_t* now = nullptr;
+            if (Readable(reinterpret_cast<const void*>(d.part + 0x36), 4))
+                std::memcpy(&now, reinterpret_cast<const void*>(d.part + 0x36), 4);
+            if (now == d.to)
+                std::memcpy(reinterpret_cast<void*>(d.part + 0x36), &d.from, 4);
+        }
+        s_SplitParts.clear();
+    }
+}
+
+const char* Fixes::SetSplit(const bool on)
+{
+    if (on == m_Split)
+        return nullptr;
+    if (!on)
+    {
+        s_SplitOn = false;
+        SplitUndo();
+        SkinUnuse(2);
+        m_Split = false;
+        return nullptr;
+    }
+    const char* why = SkinUse(2);
+    s_SplitOn       = why == nullptr;
+    m_Split         = s_SplitOn;
+    return why;
+}
+
 // The game's functions and the three places it is patched: op 0x65's table entry, and skin_part_b's skinning call.
 const char* Fixes::DisintInstall(void)
 {
-    // skin_part_b (sub esp,50h / push ebx,ebp,esi,edi / mov ebx,ecx / push 0 / mov [esp+20h],ebx / call):
-    // it reads the palette with mov eax,[palette] at +20.
-    static const char skin[] = "\x83\xEC\x50\x53\x55\x56\x57\x8B\xD9\x6A\x00\x89\x5C\x24\x20\xE8";
-    const uint8_t* fn        = FindBytes(skin, sizeof(skin) - 1);
-    if (fn == nullptr)
-        return "the skin function wasn't found";
+    // skin_part_b (sub esp,50h / push ebx,ebp / push esi,edi / mov ebx,ecx / push 0 / mov [esp+20h],ebx / call):
+    // it reads the palette with mov eax,[palette] at +20. Its first five bytes may be another plugin's jmp hook,
+    // so match from push esi and accept either the original entry or a jmp there.
+    const char* why = SkinFind();
+    if (why != nullptr)
+        return why;
+    const uint8_t* fn = s_SkinFn;
     if (fn[20] != 0xA1)
         return "the skin function doesn't read its palette where expected";
     s_Palette = *reinterpret_cast<float** const*>(fn + 21);
@@ -450,23 +710,16 @@ const char* Fixes::DisintInstall(void)
     static const char emit[] = "\x83\xEC\x4C\x53\x55\x56\x8B\xF1\x57\xC6\x44\x24\x13\x00\xF6\x86\xDC\x00\x00\x00\x01";
     s_Emit                   = reinterpret_cast<EmitFn>(const_cast<uint8_t*>(FindBytes(emit, sizeof(emit) - 1)));
     void** slot = table + (0x65 - 1);
-    if (!Readable(slot, 4) || *slot != table[0x47 - 1]) // both are the do-nothing case on the PC
+    if (!Readable(slot, 4))
         return "op 0x65 isn't the do-nothing case";
-    // skin_part_b: mov ecx,ebx / call <skinning>, 0x15C0 past its start
-    int32_t* call = nullptr;
-    for (const uint8_t* c = fn; c < fn + 0x400 && call == nullptr; ++c)
-        if (c[0] == 0x8B && c[1] == 0xCB && c[2] == 0xE8 && c + 7 + *reinterpret_cast<const int32_t*>(c + 3) == fn + 0x15C0)
-            call = reinterpret_cast<int32_t*>(const_cast<uint8_t*>(c + 3));
-    if (call == nullptr)
-        return "the skinning call wasn't found";
+    if (*slot != table[0x47 - 1]) // both are the do-nothing case on the PC, unless another plugin took 0x65
+        return Readable(*slot, 1) && !InModule(*slot) ? "another plugin already handles op 0x65 (its own disintegration)"
+                                                      : "op 0x65 isn't the do-nothing case";
     s_Orig = *slot;
     if (s_Stub == nullptr && (s_Stub = MakeStub(s_Orig)) == nullptr)
         return "couldn't allocate the op stub";
-    s_Skin = reinterpret_cast<SkinFn>(reinterpret_cast<uint8_t*>(call + 1) + *call);
-    const auto rel = static_cast<int32_t>(reinterpret_cast<const uint8_t*>(&SkinHook) - reinterpret_cast<const uint8_t*>(call + 1));
-    if (!Poke(call, &rel, 4))
-        return "couldn't patch the skinning call";
-    s_SkinCall = call;
+    if ((why = SkinUse(1)) != nullptr)
+        return why;
     void* stub = s_Stub;
     if (!Poke(slot, &stub, 4))
     {
@@ -482,12 +735,7 @@ void Fixes::DisintRemove(void)
     if (s_Slot != nullptr)
         Poke(s_Slot, &s_Orig, 4);
     s_Slot = nullptr;
-    if (s_SkinCall != nullptr)
-    {
-        const auto rel = static_cast<int32_t>(reinterpret_cast<const uint8_t*>(s_Skin) - reinterpret_cast<const uint8_t*>(s_SkinCall + 1));
-        Poke(s_SkinCall, &rel, 4);
-    }
-    s_SkinCall = nullptr;
+    SkinUnuse(1);
     // The stub stays allocated: the interpreter may be inside it on another frame's stack only while it runs, and
     // nothing jumps to it once the table is restored.
     s_Part = nullptr;

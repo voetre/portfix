@@ -48,6 +48,8 @@ public:
         m_Device = device;
         if (const char* error = SetDisint(true))
             Print(std::string("disint - off: ") + error);
+        if (const char* error = SetSplit(m_Shine))
+            Print(std::string("shine - merged batches off: ") + error);
         return true;
     }
     void Direct3DPresent(const RECT*, const RECT*, HWND, const RGNDATA*) override
@@ -88,6 +90,9 @@ public:
             on       = arg == "on" ? true : arg == "off" ? false : !on;
             if (sub == "water")
                 SetWater(on);
+            if (sub == "shine")
+                if (const char* error = SetSplit(on))
+                    Print(std::string("shine - merged batches off: ") + error);
             Print(sub + " - " + (on ? "on" : "off"));
         }
         else if (sub == "disint")
@@ -110,7 +115,7 @@ public:
             Print("/portfix - list fixes and their state");
             Print("/portfix water [on|off] - black water fix");
             Print("/portfix halo [on|off] - summon halo fix");
-            Print("/portfix shine [on|off] - sphere-map shine fix");
+            Print("/portfix shine [on|off] - metal shine fix (sphere-map and highlight)");
             Print("/portfix disint [on|off] - disintegrate effect fix");
             Print("/portfix help - this list");
         }
