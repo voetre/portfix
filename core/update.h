@@ -3,7 +3,7 @@
 
 // This build's version, as its release is tagged on GitHub (without the v).
 #ifndef PORTFIX_VERSION
-#define PORTFIX_VERSION "1.3"
+#define PORTFIX_VERSION "1.3.1"
 #endif
 
 namespace Update

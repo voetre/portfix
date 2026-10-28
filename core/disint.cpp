@@ -505,14 +505,21 @@ namespace
     // the PS2), keyed by a hash of the texture name, the counts, the PC grouping and the triangles: (material,
     // triangles) in the stream's triangle order. A part whose stream matches gets a rebuilt copy, one draw per
     // segment, with the original triangles in their order; the part points at the copy (+0x36) from then on.
-    struct SplitDone
+    //
+    // The game writes into a stream's records once it's loaded (the texture record caches its texture), and it frees
+    // a model's streams and loads them again (often at the same address) when gear changes or on zoning. So a copy
+    // belongs to one original stream at one time, and every time a part is attached its records are copied again
+    // from that original as it is now: a copy built for an earlier load would point at a freed texture.
+    struct SplitCopy
     {
-        uintptr_t part;
-        uint8_t* from;
-        uint8_t* to;
+        uint8_t* buf = nullptr;     // the rebuilt stream (never freed: a part may still point here after portfix is gone)
+        size_t size  = 0;
+        uint32_t key = 0;           // the ShineSplits key it was built for
+        const uint8_t* from = nullptr; // the original stream it currently stands in for
     };
-    std::map<const uint8_t*, uint8_t*> s_SplitStreams; // original stream -> its rebuilt copy, or nullptr (left as it is)
-    std::vector<SplitDone> s_SplitParts;
+    std::vector<SplitCopy> s_SplitCopies;
+    std::map<uintptr_t, const uint8_t*> s_SplitSeen;        // part -> the stream it had when it didn't qualify
+    std::map<uintptr_t, std::pair<const uint8_t*, uint8_t*>> s_SplitParts; // part -> (original, copy), for SplitUndo
 
     uint32_t Fnv(const uint8_t* p, const size_t n, uint32_t h = 0x811c9dc5)
     {
@@ -521,18 +528,25 @@ namespace
         return h;
     }
 
-    uint8_t* SplitStream(const uint8_t* s)
+    // What a stream is: its records and triangles, and the ShineSplits entry it matches (nullptr if none).
+    struct SplitInfo
     {
-        // walk it: materials (op 0x80n1.., 0x2e bytes), one texture (0x80n0, 0x12), triangle lists (0x54) only
         std::vector<const uint8_t*> mats;
-        std::vector<std::pair<uint16_t, uint16_t>> groups; // (material, triangles), consecutive draws merged
         const uint8_t* tex = nullptr;
         std::vector<uint8_t> tris;
+        const ShineSplit* hit = nullptr;
+        uint32_t key = 0;
+    };
+
+    bool SplitParse(const uint8_t* s, SplitInfo& in)
+    {
+        // walk it: materials (op 0x80n1.., 0x2e bytes), one texture (0x80n0, 0x12), triangle lists (0x54) only
+        std::vector<std::pair<uint16_t, uint16_t>> groups; // (material, triangles), consecutive draws merged
         size_t p = 0;
         for (;;)
         {
             if (!Readable(s + p, 4))
-                return nullptr;
+                return false;
             uint16_t op, n;
             std::memcpy(&op, s + p, 2), std::memcpy(&n, s + p + 2, 2);
             if (op == 0xffff)
@@ -542,36 +556,36 @@ namespace
                 const int k = op >> 4 & 0xf;
                 if (k == 0)
                 {
-                    if (tex != nullptr && std::memcmp(tex + 6, s + p + 6, 12) != 0)
-                        return nullptr; // several textures: not this case
-                    tex = s + p, p += 0x12;
+                    if (in.tex != nullptr && std::memcmp(in.tex + 6, s + p + 6, 12) != 0)
+                        return false; // several textures: not this case
+                    in.tex = s + p, p += 0x12;
                 }
                 else if (k == 1)
-                    mats.push_back(s + p), p += 0x2e;
+                    in.mats.push_back(s + p), p += 0x2e;
                 else
-                    return nullptr;
+                    return false;
             }
             else if (op == 0x54)
             {
-                if (mats.empty() || !Readable(s + p, 4 + n * 30u))
-                    return nullptr;
-                const auto mi = static_cast<uint16_t>(mats.size() - 1);
+                if (in.mats.empty() || !Readable(s + p, 4 + n * 30u))
+                    return false;
+                const auto mi = static_cast<uint16_t>(in.mats.size() - 1);
                 if (!groups.empty() && groups.back().first == mi)
                     groups.back().second = static_cast<uint16_t>(groups.back().second + n);
                 else
                     groups.emplace_back(mi, n);
-                tris.insert(tris.end(), s + p + 4, s + p + 4 + n * 30u), p += 4 + n * 30u;
+                in.tris.insert(in.tris.end(), s + p + 4, s + p + 4 + n * 30u), p += 4 + n * 30u;
             }
             else
-                return nullptr;
+                return false;
             if (p > 0x40000)
-                return nullptr;
+                return false;
         }
-        if (tex == nullptr || mats.size() < 2 || groups.empty())
-            return nullptr;
-        const uint16_t total = static_cast<uint16_t>(tris.size() / 30), nm = static_cast<uint16_t>(mats.size());
+        if (in.tex == nullptr || in.mats.size() < 2 || groups.empty())
+            return false;
+        const uint16_t total = static_cast<uint16_t>(in.tris.size() / 30), nm = static_cast<uint16_t>(in.mats.size());
         uint8_t name[12];
-        std::memcpy(name, tex + 6, 12);
+        std::memcpy(name, in.tex + 6, 12);
         size_t len = 12;
         while (len > 0 && name[len - 1] == ' ')
             --len;
@@ -584,44 +598,70 @@ namespace
         key = Fnv(word, 4, key);
         for (const auto& g : groups)
             std::memcpy(word, &g.first, 2), std::memcpy(word + 2, &g.second, 2), key = Fnv(word, 4, key);
-        key = Fnv(tris.data(), tris.size(), key);
-        const ShineSplit* hit = nullptr;
+        key = Fnv(in.tris.data(), in.tris.size(), key);
         for (const auto& e : ShineSplits)
             if (e.key == key && e.n > 0)
-                hit = &e;
-        if (hit == nullptr)
-            return nullptr;
+                in.hit = &e;
+        if (in.hit == nullptr)
+            return false;
         size_t sum = 0;
-        for (int i = 0; i < hit->n; ++i)
+        for (int i = 0; i < in.hit->n; ++i)
         {
-            if (hit->mat[i] >= nm)
-                return nullptr;
-            sum += hit->tris[i];
+            if (in.hit->mat[i] >= nm)
+                return false;
+            sum += in.hit->tris[i];
         }
-        if (sum != total)
-            return nullptr;
-        // rebuild: per segment, its material's record, the texture record, and its triangles in draws of up to 128
+        in.key = key;
+        return sum == total;
+    }
+
+    // Build the copy's bytes into c from the stream as it is now (into its old buffer if the size fits).
+    bool SplitBuild(const SplitInfo& in, SplitCopy& c)
+    {
+        // per segment, its material's record, the texture record, and its triangles in draws of up to 128
         std::vector<uint8_t> out;
         size_t at = 0;
-        for (int i = 0; i < hit->n; ++i)
+        for (int i = 0; i < in.hit->n; ++i)
         {
-            out.insert(out.end(), mats[hit->mat[i]], mats[hit->mat[i]] + 0x2e);
-            out.insert(out.end(), tex, tex + 0x12);
-            for (size_t left = hit->tris[i]; left > 0;)
+            const uint8_t* m = in.mats[in.hit->mat[i]];
+            out.insert(out.end(), m, m + 0x2e);
+            out.insert(out.end(), in.tex, in.tex + 0x12);
+            for (size_t left = in.hit->tris[i]; left > 0;)
             {
                 const uint16_t k = static_cast<uint16_t>((std::min)(left, static_cast<size_t>(128))), op = 0x54;
                 const uint8_t hdr[4] = {static_cast<uint8_t>(op), static_cast<uint8_t>(op >> 8), static_cast<uint8_t>(k), static_cast<uint8_t>(k >> 8)};
                 out.insert(out.end(), hdr, hdr + 4);
-                out.insert(out.end(), tris.begin() + at * 30, tris.begin() + (at + k) * 30);
+                out.insert(out.end(), in.tris.begin() + at * 30, in.tris.begin() + (at + k) * 30);
                 at += k, left -= k;
             }
         }
         out.push_back(0xff), out.push_back(0xff);
-        // never freed: a part may still point here after portfix is gone
-        auto* copy = static_cast<uint8_t*>(::HeapAlloc(::GetProcessHeap(), 0, out.size()));
-        if (copy != nullptr)
-            std::memcpy(copy, out.data(), out.size());
-        return copy;
+        if (c.buf == nullptr || c.size != out.size())
+        {
+            auto* buf = static_cast<uint8_t*>(::HeapAlloc(::GetProcessHeap(), 0, out.size()));
+            if (buf == nullptr)
+                return false;
+            c.buf = buf, c.size = out.size();
+        }
+        std::memcpy(c.buf, out.data(), out.size());
+        c.key = in.key;
+        return true;
+    }
+
+    // A copy no live part points at any more (its part was freed or moved on), free to stand in for another stream.
+    bool SplitCopyIdle(const SplitCopy& c)
+    {
+        for (const auto& [part, link] : s_SplitParts)
+        {
+            if (link.second != c.buf)
+                continue;
+            uint8_t* now = nullptr;
+            if (Readable(reinterpret_cast<const void*>(part + 0x36), 4))
+                std::memcpy(&now, reinterpret_cast<const void*>(part + 0x36), 4);
+            if (now == c.buf)
+                return false;
+        }
+        return true;
     }
 
     void SplitPart(const uintptr_t part)
@@ -632,34 +672,59 @@ namespace
         std::memcpy(&s, reinterpret_cast<const void*>(part + 0x36), 4);
         if (s == nullptr)
             return;
-        auto it = s_SplitStreams.find(s);
-        if (it == s_SplitStreams.end())
-        {
-            bool ours = false;
-            for (const auto& e : s_SplitStreams)
-                ours = ours || e.second == s;
-            if (ours)
+        // already on a copy of ours: the usual case, every frame
+        for (const auto& c : s_SplitCopies)
+            if (c.buf == s)
                 return;
-            it = s_SplitStreams.emplace(s, SplitStream(s)).first;
-        }
-        if (it->second == nullptr)
+        // didn't qualify last time, and the part still has the same stream
+        const auto seen = s_SplitSeen.find(part);
+        if (seen != s_SplitSeen.end() && seen->second == s)
             return;
-        std::memcpy(reinterpret_cast<void*>(part + 0x36), &it->second, 4);
-        s_SplitParts.push_back({part, s, it->second});
+        SplitInfo in;
+        if (!SplitParse(s, in))
+        {
+            s_SplitSeen[part] = s;
+            return;
+        }
+        s_SplitSeen.erase(part);
+        // the copy standing in for this stream; else an idle one built for the same mesh; else a new one
+        SplitCopy* c = nullptr;
+        for (auto& e : s_SplitCopies)
+            if (e.from == s && e.key == in.key)
+                c = &e;
+        if (c == nullptr)
+            for (auto& e : s_SplitCopies)
+                if (e.key == in.key && SplitCopyIdle(e))
+                    c = &e;
+        if (c == nullptr)
+        {
+            s_SplitCopies.emplace_back();
+            c = &s_SplitCopies.back();
+        }
+        // (re)build from the stream as it is now: the records hold what the game set up for this load
+        if (!SplitBuild(in, *c))
+            return;
+        c->from = s;
+        std::memcpy(reinterpret_cast<void*>(part + 0x36), &c->buf, 4);
+        s_SplitParts[part] = {s, c->buf};
     }
 
-    // Put the parts back on their own streams (only those still pointing at a copy of ours).
+    // Put the parts back on their own streams (only those still pointing at the copy they were given).
     void SplitUndo(void)
     {
-        for (const auto& d : s_SplitParts)
+        for (const auto& [part, link] : s_SplitParts)
         {
             uint8_t* now = nullptr;
-            if (Readable(reinterpret_cast<const void*>(d.part + 0x36), 4))
-                std::memcpy(&now, reinterpret_cast<const void*>(d.part + 0x36), 4);
-            if (now == d.to)
-                std::memcpy(reinterpret_cast<void*>(d.part + 0x36), &d.from, 4);
+            if (Readable(reinterpret_cast<const void*>(part + 0x36), 4))
+                std::memcpy(&now, reinterpret_cast<const void*>(part + 0x36), 4);
+            if (now == link.second)
+            {
+                const uint8_t* from = link.first;
+                std::memcpy(reinterpret_cast<void*>(part + 0x36), &from, 4);
+            }
         }
         s_SplitParts.clear();
+        s_SplitSeen.clear();
     }
 }
 
