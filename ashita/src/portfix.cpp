@@ -1,6 +1,7 @@
 // portfix for Ashita v4: forwards the Direct3D draw events to the fixes in core/ and handles /portfix.
 #define _CRT_SECURE_NO_WARNINGS
 #include "Ashita.h"
+#include "debuglog.h"
 #include "fixes.h"
 #include "update.h"
 
@@ -8,6 +9,17 @@
 
 #include <string>
 #include <vector>
+
+namespace
+{
+    ILogManager* g_Log = nullptr;
+    // /portfix debug: lines go to Ashita's session log (Ashita\logs\<date> <time>.txt)
+    void LogToAshita(const char* line)
+    {
+        if (g_Log != nullptr)
+            g_Log->Log(static_cast<uint32_t>(Ashita::LogLevel::Info), "portfix", line);
+    }
+}
 
 class PortFix final : public IPlugin, public Fixes
 {
@@ -39,13 +51,22 @@ public:
     bool Initialize(IAshitaCore* core, ILogManager* logger, const uint32_t id) override
     {
         m_AshitaCore = core;
+        g_Log        = logger;
+        DebugLog::SetSink(LogToAshita);
         Update::Start();
         return true;
     }
-    void Release(void) override { Fixes::Release(); }
+    void Release(void) override
+    {
+        PF_DEBUG("unloading");
+        Fixes::Release();
+        DebugLog::SetSink(nullptr);
+        g_Log = nullptr;
+    }
     bool Direct3DInitialize(IDirect3DDevice8* device) override
     {
         m_Device = device;
+        PF_DEBUG("Direct3D device %p", static_cast<void*>(device));
         if (const char* error = SetDisint(true))
             Print(std::string("disint - off: ") + error);
         if (const char* error = SetSplit(m_Shine))
@@ -103,6 +124,24 @@ public:
             else
                 Print(std::string("disint - ") + (m_Disint ? "on" : "off"));
         }
+        else if (sub == "debug")
+        {
+            const bool on = arg == "on" ? true : arg == "off" ? false : !DebugLog::On();
+            if (on && !DebugLog::On())
+            {
+                DebugLog::Set(true);
+                Print("debug - on: details go to Ashita's log (Ashita\\logs, the newest file). /portfix debug off to stop.");
+                DebugReport(PORTFIX_VERSION);
+            }
+            else if (!on && DebugLog::On())
+            {
+                PF_DEBUG("debug log off");
+                DebugLog::Set(false);
+                Print("debug - off");
+            }
+            else
+                Print(std::string("debug - ") + (on ? "on" : "off"));
+        }
         else if (sub.empty())
         {
             Print(std::string("water - ") + (m_Water ? "on" : "off"));
@@ -117,6 +156,7 @@ public:
             Print("/portfix halo [on|off] - summon halo fix");
             Print("/portfix shine [on|off] - metal shine fix (sphere-map and highlight)");
             Print("/portfix disint [on|off] - disintegrate effect fix");
+            Print("/portfix debug [on|off] - log details for a bug report (off by default)");
             Print("/portfix help - this list");
         }
         return true;

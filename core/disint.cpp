@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "shinesplit.h"
+#include "debuglog.h"
 
 namespace
 {
@@ -704,9 +705,20 @@ namespace
         // (re)build from the stream as it is now: the records hold what the game set up for this load
         if (!SplitBuild(in, *c))
             return;
+        const bool fresh = c->from == nullptr;
         c->from = s;
         std::memcpy(reinterpret_cast<void*>(part + 0x36), &c->buf, 4);
         s_SplitParts[part] = {s, c->buf};
+        if (DebugLog::On())
+        {
+            char name[13]{};
+            std::memcpy(name, in.tex + 6, 12);
+            const char* nm = name;
+            while (*nm == ' ')
+                ++nm;
+            DebugLog::Log("shine split: %s, %u triangles in %d segments (%s copy %p for part %08lx, stream %p)", nm,
+                          static_cast<unsigned>(in.tris.size() / 30), in.hit->n, fresh ? "new" : "rebuilt", c->buf, static_cast<unsigned long>(part), s);
+        }
     }
 
     // Put the parts back on their own streams (only those still pointing at the copy they were given).
@@ -743,6 +755,7 @@ const char* Fixes::SetSplit(const bool on)
     const char* why = SkinUse(2);
     s_SplitOn       = why == nullptr;
     m_Split         = s_SplitOn;
+    PF_DEBUG("shine split: %s%s", why == nullptr ? "on" : "couldn't start: ", why == nullptr ? "" : why);
     return why;
 }
 
@@ -989,6 +1002,7 @@ bool Fixes::DisintDraw(const D3DPRIMITIVETYPE t, const UINT minIndex, const UINT
                 tex->AddRef();
             s_Pieces.push_back(f);
         }
+        DebugLog::Once("disint-pieces", "disint: first model broken into pieces");
         if (up != nullptr)
             uv->Unlock();
         if (tex != nullptr)
@@ -1103,9 +1117,8 @@ void Fixes::DisintDrawPieces(void)
     s_Haze.resize(w);
     if (s_Pieces.empty() && s_Haze.empty())
         return;
-    DWORD block = 0;
-    if (FAILED(m_Device->CreateStateBlock(D3DSBT_ALL, &block)))
-        return;
+    DrawState keep; // the game's state, put back after the pieces and haze
+    keep.Capture(m_Device);
     const auto rs = [this](D3DRENDERSTATETYPE s, DWORD val) { m_Device->SetRenderState(s, val); };
     // The PS2's piece pass: depth test on, depth write off, no blending.
     rs(D3DRS_ZENABLE, D3DZB_TRUE);
@@ -1193,8 +1206,8 @@ void Fixes::DisintDrawPieces(void)
     if (!s_Haze.empty())
         DisintDrawHaze();
     m_Drawing = false;
-    m_Device->ApplyStateBlock(block);
-    m_Device->DeleteStateBlock(block);
+    keep.Apply(m_Device);
+    keep.Clear();
 }
 
 // g000's 'dist' elements, drawn as the PS2 does: a fan of a centre and four corners (a diamond of radius 1, op 0f

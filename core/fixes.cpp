@@ -1,9 +1,13 @@
 #include "fixes.h"
+#include "debuglog.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
+#include <string>
 #include <utility>
+#include <vector>
 
 bool Fixes::OnDrawPrimitive(const D3DPRIMITIVETYPE t, const UINT start, const UINT count)
 {
@@ -55,6 +59,7 @@ bool Fixes::OnDrawPrimitiveUP(const D3DPRIMITIVETYPE t, const UINT count, const 
 void Fixes::OnPresent(void)
 {
     m_WaterHeld = false; // a ripple draw with nothing after it in the frame is dropped
+    m_WaterState.Clear(); // and its references let go: none may outlive the frame (a device reset needs them gone)
     m_HaloSrc   = nullptr;
     m_HaloLow   = nullptr;
     if (m_Disint)
@@ -82,7 +87,81 @@ const char* Fixes::SetDisint(const bool on)
         return "no device yet";
     const char* error = DisintInstall();
     m_Disint          = error == nullptr;
+    PF_DEBUG("disint: %s%s", error == nullptr ? "on" : "couldn't start: ", error == nullptr ? "" : error);
     return error;
+}
+
+// What a report needs about the setup: portfix's state, the graphics card and which Direct3D 8 is loaded (the game's
+// own, DXVK, dgVoodoo...), the back buffer and the capabilities the fixes check.
+void Fixes::DebugReport(const char* version) const
+{
+    PF_DEBUG("portfix %s: water %s, halo %s, shine %s (split %s), disint %s", version, m_Water ? "on" : "off", m_Halo ? "on" : "off",
+             m_Shine ? "on" : "off", m_Split ? "on" : "off", m_Disint ? "on" : "off");
+    for (const char* dll : {"d3d8.dll", "d3d9.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "wined3d.dll"})
+        if (HMODULE m = ::GetModuleHandleA(dll))
+        {
+            char path[MAX_PATH] = "?";
+            ::GetModuleFileNameA(m, path, MAX_PATH);
+            // the file's own description and version tell the game's d3d8 from DXVK, dgVoodoo and other wrappers
+            std::string about;
+            DWORD handle = 0;
+            const DWORD size = ::GetFileVersionInfoSizeA(path, &handle);
+            std::vector<char> info(size);
+            if (size != 0 && ::GetFileVersionInfoA(path, 0, size, info.data()))
+            {
+                struct Lang { WORD lang, page; }* langs = nullptr;
+                UINT n = 0;
+                if (::VerQueryValueA(info.data(), "\\VarFileInfo\\Translation", reinterpret_cast<void**>(&langs), &n) && n >= sizeof(Lang))
+                    for (const char* field : {"FileDescription", "ProductName", "FileVersion"})
+                    {
+                        char key[80];
+                        std::snprintf(key, sizeof(key), "\\StringFileInfo\\%04x%04x\\%s", langs[0].lang, langs[0].page, field);
+                        char* value = nullptr;
+                        UINT len    = 0;
+                        if (::VerQueryValueA(info.data(), key, reinterpret_cast<void**>(&value), &len) && len > 1)
+                            about += std::string(about.empty() ? "" : ", ") + value;
+                    }
+            }
+            PF_DEBUG("module %s: %s%s%s%s", dll, path, about.empty() ? "" : " (", about.c_str(), about.empty() ? "" : ")");
+        }
+    if (m_Device == nullptr)
+    {
+        PF_DEBUG("no Direct3D device yet");
+        return;
+    }
+    IDirect3D8* d3d = nullptr;
+    D3DDEVICE_CREATION_PARAMETERS cp{};
+    if (SUCCEEDED(m_Device->GetCreationParameters(&cp)) && SUCCEEDED(m_Device->GetDirect3D(&d3d)) && d3d != nullptr)
+    {
+        D3DADAPTER_IDENTIFIER8 id{};
+        if (SUCCEEDED(d3d->GetAdapterIdentifier(cp.AdapterOrdinal, 0, &id)))
+            PF_DEBUG("adapter %u: %s (vendor %04lx device %04lx, driver %s %lu.%lu)", cp.AdapterOrdinal, id.Description, id.VendorId, id.DeviceId, id.Driver,
+                     id.DriverVersion.HighPart, id.DriverVersion.LowPart);
+        d3d->Release();
+    }
+    PF_DEBUG("device: type %d, behaviour flags %08lx", cp.DeviceType, cp.BehaviorFlags);
+    IDirect3DSurface8* bb = nullptr;
+    if (SUCCEEDED(m_Device->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb != nullptr)
+    {
+        D3DSURFACE_DESC d{};
+        bb->GetDesc(&d);
+        PF_DEBUG("back buffer %ux%u format %d, multisample %d", d.Width, d.Height, d.Format, d.MultiSampleType);
+        bb->Release();
+    }
+    IDirect3DSurface8* ds = nullptr;
+    if (SUCCEEDED(m_Device->GetDepthStencilSurface(&ds)) && ds != nullptr)
+    {
+        D3DSURFACE_DESC d{};
+        ds->GetDesc(&d);
+        PF_DEBUG("depth buffer %ux%u format %d", d.Width, d.Height, d.Format);
+        ds->Release();
+    }
+    D3DCAPS8 caps{};
+    if (SUCCEEDED(m_Device->GetDeviceCaps(&caps)))
+        PF_DEBUG("caps: vs %lx ps %lx, blend stages %lu, simultaneous textures %lu, TSSARGTEMP %d, MODULATE4X %d, cube maps %d, max texture %lux%lu",
+                 caps.VertexShaderVersion, caps.PixelShaderVersion, caps.MaxTextureBlendStages, caps.MaxSimultaneousTextures,
+                 (caps.PrimitiveMiscCaps & D3DPMISCCAPS_TSSARGTEMP) != 0, (caps.TextureOpCaps & D3DTEXOPCAPS_MODULATE4X) != 0,
+                 (caps.TextureCaps & D3DPTEXTURECAPS_CUBEMAP) != 0, caps.MaxTextureWidth, caps.MaxTextureHeight);
 }
 
 void Fixes::Release(void)
@@ -96,9 +175,78 @@ void Fixes::Release(void)
 void Fixes::WaterRelease(void)
 {
     m_WaterHeld = false;
-    for (DWORD* b : {&m_WaterBlock, &m_WaterKeep})
-        if (*b != 0 && m_Device != nullptr)
-            m_Device->DeleteStateBlock(*b), *b = 0;
+    m_WaterState.Clear();
+    m_WaterKeep.Clear();
+}
+
+namespace
+{
+    // what portfix's draws set or depend on: everything the water layers and disintegrate's passes touch
+    const D3DRENDERSTATETYPE DrawRs[] = {
+        D3DRS_ZENABLE, D3DRS_FILLMODE, D3DRS_SHADEMODE, D3DRS_ZWRITEENABLE, D3DRS_ALPHATESTENABLE, D3DRS_SRCBLEND, D3DRS_DESTBLEND,
+        D3DRS_CULLMODE, D3DRS_ZFUNC, D3DRS_ALPHAREF, D3DRS_ALPHAFUNC, D3DRS_DITHERENABLE, D3DRS_ALPHABLENDENABLE, D3DRS_FOGENABLE,
+        D3DRS_SPECULARENABLE, D3DRS_ZBIAS, D3DRS_TEXTUREFACTOR, D3DRS_LIGHTING, D3DRS_AMBIENT, D3DRS_COLORVERTEX, D3DRS_BLENDOP,
+        D3DRS_FOGCOLOR, D3DRS_FOGTABLEMODE, D3DRS_FOGSTART, D3DRS_FOGEND, D3DRS_FOGDENSITY, D3DRS_RANGEFOGENABLE, D3DRS_FOGVERTEXMODE,
+        D3DRS_NORMALIZENORMALS, D3DRS_DIFFUSEMATERIALSOURCE, D3DRS_AMBIENTMATERIALSOURCE, D3DRS_SPECULARMATERIALSOURCE,
+        D3DRS_EMISSIVEMATERIALSOURCE, D3DRS_COLORWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_CLIPPING, D3DRS_WRAP0, D3DRS_WRAP1,
+        D3DRS_VERTEXBLEND, D3DRS_INDEXEDVERTEXBLENDENABLE};
+    const D3DTEXTURESTAGESTATETYPE DrawTss[] = {
+        D3DTSS_COLOROP, D3DTSS_COLORARG1, D3DTSS_COLORARG2, D3DTSS_ALPHAOP, D3DTSS_ALPHAARG1, D3DTSS_ALPHAARG2, D3DTSS_TEXCOORDINDEX,
+        D3DTSS_ADDRESSU, D3DTSS_ADDRESSV, D3DTSS_MAGFILTER, D3DTSS_MINFILTER, D3DTSS_MIPFILTER, D3DTSS_MIPMAPLODBIAS, D3DTSS_MAXMIPLEVEL,
+        D3DTSS_TEXTURETRANSFORMFLAGS, D3DTSS_COLORARG0, D3DTSS_ALPHAARG0, D3DTSS_RESULTARG};
+    static_assert(sizeof(DrawRs) / sizeof(DrawRs[0]) <= 48 && sizeof(DrawTss) / sizeof(DrawTss[0]) <= 20, "DrawState arrays too small");
+}
+
+void Fixes::DrawState::Capture(IDirect3DDevice8* d)
+{
+    Clear();
+    for (size_t i = 0; i < sizeof(DrawRs) / sizeof(DrawRs[0]); ++i)
+        d->GetRenderState(DrawRs[i], &rs[i]);
+    for (DWORD stage = 0; stage < 2; ++stage)
+        for (size_t i = 0; i < sizeof(DrawTss) / sizeof(DrawTss[0]); ++i)
+            d->GetTextureStageState(stage, DrawTss[i], &tss[stage][i]);
+    d->GetTransform(D3DTS_WORLD, &world);
+    d->GetTransform(D3DTS_VIEW, &view);
+    d->GetTransform(D3DTS_PROJECTION, &proj);
+    d->GetTransform(D3DTS_TEXTURE0, &tex0);
+    d->GetTransform(D3DTS_TEXTURE1, &tex1);
+    for (DWORD stage = 0; stage < 4; ++stage)
+        d->GetTexture(stage, &texture[stage]); // these hold a reference until Clear
+    d->GetStreamSource(0, &stream, &stride);
+    d->GetVertexShader(&shader);
+    d->GetPixelShader(&pixelShader);
+    held = true;
+}
+
+void Fixes::DrawState::Apply(IDirect3DDevice8* d) const
+{
+    if (!held)
+        return;
+    for (size_t i = 0; i < sizeof(DrawRs) / sizeof(DrawRs[0]); ++i)
+        d->SetRenderState(DrawRs[i], rs[i]);
+    for (DWORD stage = 0; stage < 2; ++stage)
+        for (size_t i = 0; i < sizeof(DrawTss) / sizeof(DrawTss[0]); ++i)
+            d->SetTextureStageState(stage, DrawTss[i], tss[stage][i]);
+    d->SetTransform(D3DTS_WORLD, &world);
+    d->SetTransform(D3DTS_VIEW, &view);
+    d->SetTransform(D3DTS_PROJECTION, &proj);
+    d->SetTransform(D3DTS_TEXTURE0, &tex0);
+    d->SetTransform(D3DTS_TEXTURE1, &tex1);
+    for (DWORD stage = 0; stage < 4; ++stage)
+        d->SetTexture(stage, texture[stage]);
+    d->SetStreamSource(0, stream, stride);
+    d->SetVertexShader(shader);
+    d->SetPixelShader(pixelShader);
+}
+
+void Fixes::DrawState::Clear(void)
+{
+    for (auto*& t : texture)
+        if (t != nullptr)
+            t->Release(), t = nullptr;
+    if (stream != nullptr)
+        stream->Release(), stream = nullptr;
+    held = false;
 }
 
 // Water is several flat layers a few hundredths of a yalm apart, drawn after the scene with LESSEQUAL. The PS2
@@ -109,7 +257,7 @@ void Fixes::WaterRelease(void)
 //   the water layers. The game draws the water pass with a near plane of 0.1003 instead of the scene's 0.1, which
 //   pulls it 0.3% of its distance closer; along a view ray the gap is 0.0415 * distance / camera height, so the
 //   water only wins with the camera more than ~14 yalms above it. Lower, the whole canal goes black at once.
-// The fix holds the ripple draw back (its whole state in a state block) and draws it after the tint, with no depth
+// The fix holds the ripple draw back (its state kept by hand) and draws it after the tint, with no depth
 // write: tint, then ripples added on top (drawing them in place with no depth write showed flat tint only). And it
 // draws every scrolling water layer WaterLift higher, so no layer sits under the plane it's painted on, at any
 // camera height or distance.
@@ -158,6 +306,7 @@ void Fixes::WaterDraw(const D3DPRIMITIVETYPE t, const UINT start, const UINT cou
         len = std::sqrt(w._21 * w._21 + w._22 * w._22 + w._23 * w._23);
     if (len > 0.0f)
     {
+        DebugLog::Once("water-lift", "water: scrolling water layer lifted %.2f (%u primitives)", WaterLift, count);
         up = w;
         up._41 -= WaterLift * w._21 / len;
         up._42 -= WaterLift * w._22 / len;
@@ -173,11 +322,8 @@ void Fixes::WaterDraw(const D3DPRIMITIVETYPE t, const UINT start, const UINT cou
 
 bool Fixes::WaterHold(const D3DPRIMITIVETYPE t, const UINT start, const UINT count)
 {
-    if (m_WaterBlock == 0 ? FAILED(m_Device->CreateStateBlock(D3DSBT_ALL, &m_WaterBlock)) : FAILED(m_Device->CaptureStateBlock(m_WaterBlock)))
-    {
-        m_WaterBlock = 0;
-        return false; // the game draws it as it is
-    }
+    DebugLog::Once("water-hold", "water: ripple layer held back to draw after the tint (%u primitives)", count);
+    m_WaterState.Capture(m_Device);
     m_WaterType  = t;
     m_WaterStart = start;
     m_WaterCount = count;
@@ -190,15 +336,13 @@ void Fixes::WaterFlush(void)
     if (!m_WaterHeld)
         return;
     m_WaterHeld = false;
-    if (m_WaterKeep == 0 ? FAILED(m_Device->CreateStateBlock(D3DSBT_ALL, &m_WaterKeep)) : FAILED(m_Device->CaptureStateBlock(m_WaterKeep)))
-    {
-        m_WaterKeep = 0;
-        return;
-    }
-    m_Device->ApplyStateBlock(m_WaterBlock);
+    m_WaterKeep.Capture(m_Device);
+    m_WaterState.Apply(m_Device);
     m_Device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
     WaterDraw(m_WaterType, m_WaterStart, m_WaterCount, true);
-    m_Device->ApplyStateBlock(m_WaterKeep);
+    m_WaterKeep.Apply(m_Device);
+    m_WaterKeep.Clear();
+    m_WaterState.Clear();
 }
 
 // Outline halos (Carbuncle's blue aura, other summons): the model is drawn into a 4096x4096 silhouette texture,
@@ -255,6 +399,7 @@ bool Fixes::HaloDraw(const D3DPRIMITIVETYPE t, const UINT count, const void* dat
         std::memcpy(v + i * 28, xy, 8);
     }
     m_Device->SetTexture(0, m_HaloSrc);
+    DebugLog::Once("halo", "halo: first halo quad drawn from the full-size silhouette (%ux%u)", d.Width, d.Height);
     m_Drawing = true;
     RawDrawPrimitiveUP(t, count, v, 28);
     m_Drawing = false;
@@ -278,6 +423,9 @@ bool Fixes::ShineCaps(void)
         D3DCAPS8 caps{};
         m_ShineTemp = SUCCEEDED(m_Device->GetDeviceCaps(&caps)) && (caps.PrimitiveMiscCaps & D3DPMISCCAPS_TSSARGTEMP) != 0 && caps.MaxTextureBlendStages >= 3 ? 1 : 0;
         m_SpotOps   = (caps.TextureOpCaps & D3DTEXOPCAPS_MODULATE4X) != 0 && (caps.TextureCaps & D3DPTEXTURECAPS_CUBEMAP) != 0;
+        PF_DEBUG("shine: device caps: TSSARGTEMP %d, blend stages %lu, MODULATE4X %d, cube maps %d -> sphere-map fix %s, highlight fix %s",
+                 (caps.PrimitiveMiscCaps & D3DPMISCCAPS_TSSARGTEMP) != 0, caps.MaxTextureBlendStages, (caps.TextureOpCaps & D3DTEXOPCAPS_MODULATE4X) != 0,
+                 (caps.TextureCaps & D3DPTEXTURECAPS_CUBEMAP) != 0, m_ShineTemp == 1 ? "on" : "unavailable", m_ShineTemp == 1 && m_SpotOps ? "on" : "unavailable");
     }
     return m_ShineTemp == 1;
 }
@@ -433,8 +581,14 @@ bool Fixes::SpotDraw(const D3DPRIMITIVETYPE t, const UINT minIndex, const UINT n
     tex->Release(); // the stage still holds it
     if (tex->GetType() != D3DRTYPE_CUBETEXTURE)
         return false;
-    if (tex != m_SpotFrom && !SpotBuild(static_cast<IDirect3DCubeTexture8*>(tex)))
-        return false;
+    if (tex != m_SpotFrom)
+    {
+        const bool built = SpotBuild(static_cast<IDirect3DCubeTexture8*>(tex));
+        PF_DEBUG(built ? "shine: highlight cube built from the game's (%p)" : "shine: couldn't build the highlight cube from the game's (%p); the game draws it",
+                 static_cast<void*>(tex));
+        if (!built)
+            return false;
+    }
 
     // light 0's colour, halved so it fits TFACTOR (x 4 at stage 1 makes it light x 2)
     D3DLIGHT8 light{};

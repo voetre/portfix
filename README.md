@@ -71,9 +71,23 @@ Ashita: `/portfix`. Windower: `//portfix` in chat, `portfix` in the console.
 | `/portfix halo [on\|off]` | Summon halo fix. No argument toggles. |
 | `/portfix shine [on\|off]` | Sphere-map and weapon shine fixes. No argument toggles. |
 | `/portfix disint [on\|off]` | Disintegrate effect fix. No argument toggles. |
+| `/portfix debug [on\|off]` | Log details for a bug report. Off by default. |
 | `/portfix help` | List commands. |
 
 Settings are not saved. All fixes are on each time the plugin loads.
+
+## Reporting a problem
+
+Open an issue on GitHub with:
+
+- what you saw, and where (zone, item or effect), with a screenshot or video if you can;
+- Ashita or Windower, the portfix version (the first line of the debug log below), your resolution, and any graphics wrapper such as dgVoodoo or ReShade;
+- whether turning that fix off (`/portfix water off`, for example) makes it go away;
+- a debug log: type `/portfix debug on` (Windower: `//portfix debug on`), do what causes the problem, then `/portfix debug off`.
+  - Ashita: send the newest file in `Ashita\logs`.
+  - Windower: send `portfix.log` from `Windower\addons\portfix`.
+
+The log says which fixes are on, your graphics card and its Direct3D 8 (the game's own, DXVK, dgVoodoo...), and what portfix did, such as which weapon models it redrew. It contains no account details. After a crash, also send any crash dump Ashita left.
 
 ## Updates
 

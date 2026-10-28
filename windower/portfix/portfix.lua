@@ -1,12 +1,13 @@
 -- portfix for Windower 4. The fixes are in portfix.dll, next to this file.
 _addon.name     = 'portfix'
 _addon.author   = 'voetre'
-_addon.version  = '1.3.1'
+_addon.version  = '1.3.2'
 _addon.commands = {'portfix'}
 
 local fixes = {'water', 'halo', 'shine', 'disint'}
 local about = {water = 'black water fix', halo = 'summon halo fix', shine = 'sphere-map shine fix', disint = 'disintegrate effect fix'}
 local state = {water = true, halo = true, shine = true, disint = true}
+local debug_on = false
 
 local function log(text)
     windower.add_to_chat(207, '[portfix] ' .. text)
@@ -69,6 +70,18 @@ windower.register_event('addon command', function(name, arg)
         end
         apply()
         log(name .. ' - ' .. (state[name] and 'on' or 'off'))
+    elseif name == 'debug' then
+        if arg == 'on' then
+            debug_on = true
+        elseif arg == 'off' then
+            debug_on = false
+        else
+            debug_on = not debug_on
+        end
+        if core and core.debug then
+            core.debug(debug_on)
+        end
+        log('debug - ' .. (debug_on and 'on: details go to portfix.log in the portfix addon folder' or 'off'))
     elseif name == '' then
         for _, n in ipairs(fixes) do
             log(n .. ' - ' .. (state[n] and 'on' or 'off'))
@@ -78,6 +91,7 @@ windower.register_event('addon command', function(name, arg)
         for _, n in ipairs(fixes) do
             log('//portfix ' .. n .. ' [on|off] - ' .. about[n])
         end
+        log('//portfix debug [on|off] - log details for a bug report (off by default)')
         log('//portfix help - this list')
     end
 end)

@@ -1,5 +1,6 @@
 // portfix for Windower 4: a Lua C module loaded by addons/portfix/portfix.lua. Windower wraps the Direct3D 8 device,
 // so the draw calls are taken from the vtable of the real device under the wrapper and forwarded to the fixes in core/.
+#include "debuglog.h"
 #include "fixes.h"
 #include "update.h"
 
@@ -31,6 +32,7 @@ namespace
     std::atomic<bool> g_WantHalo{true};
     std::atomic<bool> g_WantShine{true};
     std::atomic<bool> g_WantDisint{true};
+    std::atomic<bool> g_WantDebug{false}; // /portfix debug: lines go to portfix.log next to the dll
     bool g_DisintFailed = false; // the patch couldn't be made (another client version): not tried again
     bool g_SplitFailed  = false; // the same, for the shine fix's merged batches
 
@@ -65,6 +67,19 @@ namespace
                 g_DisintFailed = g_Fixes.SetDisint(on) != nullptr;
             if (const bool on = g_WantShine; on != g_Fixes.m_Split && !g_SplitFailed)
                 g_SplitFailed = g_Fixes.SetSplit(on) != nullptr;
+            if (const bool on = g_WantDebug; on != DebugLog::On())
+            {
+                if (on)
+                {
+                    DebugLog::Set(true);
+                    g_Fixes.DebugReport(PORTFIX_VERSION " (Windower)");
+                }
+                else
+                {
+                    PF_DEBUG("debug log off");
+                    DebugLog::Set(false);
+                }
+            }
         }
         return g_Present(d, src, dst, wnd, dirty);
     }
@@ -202,6 +217,13 @@ namespace
         return 0;
     }
 
+    // debug(on): the debug log, applied at the next Present (the report reads the device)
+    int LuaDebug(lua_State* L)
+    {
+        g_WantDebug = lua_toboolean(L, 1) != 0;
+        return 0;
+    }
+
     // update() -> the message about a newer release (once), true when the check is over with nothing to say,
     // false while it runs
     int LuaUpdate(lua_State* L)
@@ -228,15 +250,15 @@ extern "C" __declspec(dllexport) void portfix_set(const int water, const int hal
     g_WantShine  = shine != 0;
 }
 
-// package.loadlib(path, "luaopen_portfix")() -> { start = fn, set = fn, update = fn }
+// package.loadlib(path, "luaopen_portfix")() -> { start = fn, set = fn, update = fn, debug = fn }
 extern "C" __declspec(dllexport) int luaopen_portfix(lua_State* L)
 {
     const HMODULE lua = GetModuleHandleW(L"LuaCore.dll");
     if (lua == nullptr || !Import(lua, "lua_createtable", lua_createtable) || !Import(lua, "luaL_register", luaL_register) ||
         !Import(lua, "lua_toboolean", lua_toboolean) || !Import(lua, "lua_pushboolean", lua_pushboolean) || !Import(lua, "lua_pushstring", lua_pushstring))
         return 0;
-    static const luaL_Reg funcs[] = {{"start", LuaStart}, {"set", LuaSet}, {"update", LuaUpdate}, {nullptr, nullptr}};
-    lua_createtable(L, 0, 3);
+    static const luaL_Reg funcs[] = {{"start", LuaStart}, {"set", LuaSet}, {"update", LuaUpdate}, {"debug", LuaDebug}, {nullptr, nullptr}};
+    lua_createtable(L, 0, 4);
     luaL_register(L, nullptr, funcs);
     return 1;
 }

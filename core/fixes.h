@@ -32,6 +32,8 @@ public:
     const char* SetDisint(bool on);
     const char* SetSplit(bool on);
     void Release(void);
+    // The setup, for a bug report: with /portfix debug on (debuglog.h).
+    void DebugReport(const char* version) const;
 
 private:
     bool m_Drawing = false; // a Raw* draw is in progress
@@ -39,7 +41,24 @@ private:
     bool m_WaterHeld = false; // a ripple layer waits to be drawn after the tint
     D3DPRIMITIVETYPE m_WaterType = D3DPT_TRIANGLELIST;
     UINT m_WaterStart = 0, m_WaterCount = 0;
-    DWORD m_WaterBlock = 0, m_WaterKeep = 0; // state blocks: the ripple draw's state, the state put back after
+    // Device state portfix saves and puts back around its own draws (the water's held ripple layer, disintegrate's
+    // pieces). Kept by hand, not in D3D8 state blocks: wrappers that implement D3D8 themselves (dgVoodoo) may not
+    // capture and apply all of a block; with dgVoodoo the ripples came out a flat opaque sheet (GitHub issue #1).
+    struct DrawState
+    {
+        DWORD rs[48]{};
+        DWORD tss[2][20]{};
+        D3DMATRIX world{}, view{}, proj{}, tex0{}, tex1{};
+        IDirect3DBaseTexture8* texture[4]{};
+        IDirect3DVertexBuffer8* stream = nullptr;
+        UINT stride  = 0;
+        DWORD shader = 0, pixelShader = 0;
+        bool held    = false;
+        void Capture(IDirect3DDevice8* d);
+        void Apply(IDirect3DDevice8* d) const;
+        void Clear(void);
+    };
+    DrawState m_WaterState, m_WaterKeep;
 
     IDirect3DBaseTexture8* m_HaloSrc = nullptr; // this frame's silhouette and its 256x256 copy's surface (identity only, not held)
     IDirect3DSurface8* m_HaloLow     = nullptr;

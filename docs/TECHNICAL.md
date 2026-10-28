@@ -39,6 +39,23 @@ The dll also exports `portfix_start` and `portfix_set(water, halo, disint, shine
 
 `core/update.cpp` runs once on load, on its own thread: a WinHTTP GET of `https://api.github.com/repos/voetre/portfix/releases/latest` with a 5 second timeout. The `tag_name` (without its leading `v`) is compared number by number with `PORTFIX_VERSION` in `core/update.h`. If it is newer, the message waits until the player is in game: Ashita checks at each Present, and the Windower addon calls `update()` every 5 seconds. Any failure (no network, rate limit, unexpected reply) ends the check without a message. The thread holds a reference on the dll while it runs.
 
+## Saving and restoring device state
+
+Two fixes draw with their own settings and must leave the game's state as it was: the water fix's held ripple layer, and Disintegrate's pieces and haze. Both used to save the whole device in a Direct3D 8 state block (`CreateStateBlock(D3DSBT_ALL)` / `ApplyStateBlock`). They now save and restore by hand only the settings portfix's draws use (`Fixes::DrawState`):
+
+- 40 render states, stages 0 and 1, the world, view, projection and texture transforms, textures 0 to 3, vertex stream 0, and the vertex and pixel shaders.
+- References to the textures and the vertex buffer are let go at the end of each frame.
+
+Reason: wrappers that implement Direct3D 8 themselves may not capture and apply a whole block the same way. With dgVoodoo, Port Bastok's sea came out a flat opaque sheet (GitHub issue #1), which fits the ripple layer being drawn without its blend settings. This is untested with dgVoodoo: current dgVoodoo crashes under Wine and Proton while creating the device (Wine bug 58731), so it can't be run in the test harness.
+
+## Debug log
+
+`/portfix debug on` (off by default, not saved) writes:
+
+- On Ashita, to Ashita's session log; on Windower, to `portfix.log` next to the dll.
+- When turned on: the version, which fixes are on, the Direct3D DLLs loaded (path plus the file's own description and version, so DXVK or dgVoodoo show by name), the adapter, the device flags, the back and depth buffers and the capabilities the fixes check.
+- Then one line per rare event: a fix that can't start, a weapon model's draws rebuilt by the shine split, the highlight cube built, and the first draw each fix takes over. Nothing per frame, and at most 2000 lines a session (`core/debuglog.h`).
+
 ## Black water
 
 ### Symptom
