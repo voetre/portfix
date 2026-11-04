@@ -1,6 +1,6 @@
 # Technical details
 
-portfix intercepts Direct3D 8 draw calls made by FFXiMain.dll. The fix logic is in `core/fixes.cpp` and `core/disint.cpp`. Each launcher build forwards four device calls to it: DrawPrimitive, DrawIndexedPrimitive, DrawPrimitiveUP and Present. A fix either passes a draw through, holds it, or replaces it with an edited copy. The disintegrate fix also patches two places in FFXiMain.dll's code and makes draws of its own. Draws issued by portfix are marked so they are not processed a second time.
+portfix intercepts Direct3D 8 draw calls made by FFXiMain.dll. The fix logic is in `core/fixes.cpp` and `core/disint.cpp`. Each launcher build forwards four device calls to it: DrawPrimitive, DrawIndexedPrimitive, DrawPrimitiveUP and Present. A fix either passes a draw through, holds it, or replaces it with an edited copy. The disintegrate fix also patches two places in FFXiMain.dll's code and makes draws of its own. The menu mouse fix replaces one of FFXiMain.dll's imports. Draws issued by portfix are marked so they are not processed a second time.
 
 ## Launcher builds
 
@@ -158,6 +158,17 @@ Two values were carried over from the PS2 unchanged.
 
 Colours, blend states, ghost count and the offset pattern are the game's own.
 
+### Optional limit: `/portfix halomax`
+
+The offsets are a fixed fraction of the picture, so against the model they grow with distance. `/portfix halomax <yalms>` limits how far a ghost may sit from the model. It is off by default because the PS2 does not limit it.
+
+- Distance. The model's vertices are skinned into world space on the CPU, so the world transform is identity, and reading a vertex back stalls (write-combined memory). The skinning call hook copies the translation of the first bone of the palette for each part. At the copy-down (step 2) the last position copied is the halo's model, and its depth comes from the view matrix.
+- Separation. A ghost's first vertex (x0, y0) is x0 / 640 of the picture's width and y0 / 640 of its height at any render size. At depth z that spans (x0 / 320 * z / P00, y0 / 320 * z / P11) yalms, where P00 and P11 are the projection's scales.
+- Limit. If that length is over the limit, the offset is scaled down to it. Offset directions are kept. A nearer model under the limit draws as without it.
+- Default. `/portfix halomax on` is 0.018 yalms, the widest offset with the default camera: 3.125 / 320 * 5.05 / 2.78, with the model 5.05 yalms away.
+
+Checked under DXVK at 1920x1080 with Carbuncle and Leviathan: depth followed the camera (5.05, 9.32, 17.86 and 34.95 yalms at four distances). At 5 yalms the default looks the same as no limit. At 35 yalms it keeps the close-up outline where no limit shows separate copies. Not checked on real NPCs with halos such as Greeter Moogles, or with dgVoodoo. If the skinning hook can't be installed halos stay as they were: Ashita prints the reason, and the Windower build stays quiet and writes nothing extra.
+
 ### Faithfulness
 
 This is a correction of two parameters in the game's own effect, not a reimplementation. Known differences from the PS2:
@@ -165,7 +176,7 @@ This is a correction of two parameters in the game's own effect, not a reimpleme
 - The factor 640 assumes the offsets are in units of a 640-pixel-wide frame. The PS2 frame size for this effect was not verified.
 - On the PS2 one texel of the 256x256 copy covers about 2.5 screen pixels. The low resolution softens the halo. With the full-size silhouette the halo edge is sharper than on the PS2. A closer match would keep a low-resolution copy at the same texel-to-pixel ratio, about 768x768 at 1920 pixels wide.
 - The PS2 GS sampling and blending are not emulated.
-- The result was compared by eye with PS2 recordings. It was not measured.
+- Measured 2026-10-30 (GitHub issue #2): Carbuncle from the side at 2, 4, 8 and 16 yalms, a real summon on the PS2 (output 1920 wide) and the costume on the PC at 1920x1080 under DXVK. How far the blue band reaches past the body, median over the edges: PS2 8-11 px, PC with the fix 5-6 px, at every distance. On both the band stays the same width in pixels while the model shrinks, so a distant summon looks more haloed on the PS2 as well. The fix is a little narrower than the PS2 here, not wider.
 
 ## Sphere-map shine
 
@@ -346,6 +357,29 @@ The capture rule, piece motion, timings and draw states are the PS2's, read from
 - The pieces are drawn before the interface, not at the point in the frame the PS2 draws them. On both they draw over the burst and under the later smoke.
 - 60 effect ticks a second and 30 PS2 frames a second are assumed for timing.
 - Compared by eye with PS2 recordings, aligned on the effect's colour changes.
+
+## Menu mouse position
+
+### Symptom
+
+On the title menu in a window, hover zones sit above the buttons. Hovering over the lower half of a button highlights the next one. The offset grows towards the bottom and right of the window.
+
+### Cause
+
+The window procedure's mouse code, in the windowed modes other than mode 3, scales the cursor by the window rect over that rect less the theme's frame and caption:
+
+```
+x * width  / (width  - 2 * SM_CXFRAME)
+y * height / (height - 2 * SM_CYFRAME - SM_CYCAPTION)
+```
+
+The cursor is already relative to the client area, so this is only right when the window's real frame is exactly the theme's size. Under Wine and gamescope the window rect equals the client rect, so the sum stretches the cursor.
+
+### Fix
+
+FFXiMain.dll's import of GetSystemMetrics is replaced. For those three metrics it answers with the real frame, window rect less client rect: half the difference for each frame, and the odd pixel of the height as the caption. Other metrics pass through. The game's own sum then gives the client position. Its SetCursorPos and screen edge code use the same values.
+
+Measured on the title menu at 1920x1080 under Proton and gamescope. The boundary between each pair of buttons, averaged over sweeps up and down, against the gap between them: 658/653, 698/693, 734/733, 774/772. Without the fix: 634, 674, 714, 750. Not checked on Windows, where the theme's frame can differ from the real one too.
 
 ## Verification
 

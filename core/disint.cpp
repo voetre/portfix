@@ -117,7 +117,9 @@ namespace
     uint8_t* s_Stub       = nullptr; // our case
     float** s_Palette     = nullptr; // the skinning palette pointer skin_part_b reads
     const uint8_t* s_SkinFn = nullptr; // skin_part_b
-    int s_SkinUsers         = 0;       // who needs the skinning call hooked: 1 disintegration, 2 the shine split
+    int s_SkinUsers         = 0;       // who needs the skinning call hooked: 1 disintegration, 2 the shine split, 4 the halo cap
+    float s_SkinAt[3]{};               // the first bone of the part skinned last (world space)
+    bool s_SkinAtSet        = false;
     bool s_SplitOn          = false;
 
     const float* s_Part = nullptr; // the palette of the part being skinned, when it's a capturing actor's
@@ -330,6 +332,11 @@ namespace
     void SplitPart(uintptr_t part);
     void __fastcall SkinHook(const uintptr_t part)
     {
+        if ((s_SkinUsers & 4) != 0 && *s_Palette != nullptr)
+        {
+            std::memcpy(s_SkinAt, *s_Palette + 12, sizeof(s_SkinAt));
+            s_SkinAtSet = true;
+        }
         if (s_SplitOn)
             SplitPart(part);
         for (void*& vb : s_SkinVb)
@@ -464,8 +471,20 @@ namespace
         return s_SkinFn != nullptr ? nullptr : "the skin function wasn't found";
     }
 
+    // skin_part_b reads the palette with mov eax,[palette] at +20.
+    const char* PaletteFind(void)
+    {
+        const char* why = SkinFind();
+        if (why != nullptr)
+            return why;
+        if (s_SkinFn[20] != 0xA1)
+            return "the skin function doesn't read its palette where expected";
+        s_Palette = *reinterpret_cast<float** const*>(s_SkinFn + 21);
+        return nullptr;
+    }
+
     // skin_part_b's call to its skinning (mov ecx,ebx / call <skinning>, 0x15C0 past its start) goes through
-    // SkinHook while anyone needs it: disintegration (1) or the shine split (2).
+    // SkinHook while anyone needs it: disintegration (1), the shine split (2) or the halo cap (4).
     const char* SkinUse(const int who)
     {
         if (s_SkinCall == nullptr)
@@ -759,19 +778,44 @@ const char* Fixes::SetSplit(const bool on)
     return why;
 }
 
+// The halo cap needs the distance to the model. Its vertices are skinned into world space (the world transform is
+// identity) and reading them back stalls, so it takes the position from the bones the part was skinned with.
+const char* Fixes::SetHaloMax(const float yalms)
+{
+    const bool was = m_HaloMax > 0.0f;
+    const bool on  = yalms > 0.0f;
+    if (on && !was)
+    {
+        const char* why = PaletteFind();
+        if (why == nullptr)
+            why = SkinUse(4);
+        PF_DEBUG("halo cap: %s%s", why == nullptr ? "on" : "couldn't start: ", why == nullptr ? "" : why);
+        if (why != nullptr)
+            return why;
+    }
+    if (!on && was)
+    {
+        SkinUnuse(4);
+        s_SkinAtSet = false;
+    }
+    m_HaloMax = on ? yalms : 0.0f;
+    return nullptr;
+}
+
+bool Fixes::SkinnedAt(float at[3])
+{
+    if (!s_SkinAtSet)
+        return false;
+    std::memcpy(at, s_SkinAt, sizeof(s_SkinAt));
+    return true;
+}
+
 // The game's functions and the three places it is patched: op 0x65's table entry, and skin_part_b's skinning call.
 const char* Fixes::DisintInstall(void)
 {
-    // skin_part_b (sub esp,50h / push ebx,ebp / push esi,edi / mov ebx,ecx / push 0 / mov [esp+20h],ebx / call):
-    // it reads the palette with mov eax,[palette] at +20. Its first five bytes may be another plugin's jmp hook,
-    // so match from push esi and accept either the original entry or a jmp there.
-    const char* why = SkinFind();
+    const char* why = PaletteFind();
     if (why != nullptr)
         return why;
-    const uint8_t* fn = s_SkinFn;
-    if (fn[20] != 0xA1)
-        return "the skin function doesn't read its palette where expected";
-    s_Palette = *reinterpret_cast<float** const*>(fn + 21);
     // The per-particle op dispatch: mov eax,[ebp] / and eax,0FFh / dec eax / cmp eax,6Dh / ja rel32 / jmp [eax*4+table]
     static const char dispatch[] = "\x8B\x45\x00\x25\xFF\x00\x00\x00\x48\x83\xF8\x6D\x0F\x87????\xFF\x24\x85";
     const uint8_t* d             = FindBytes(dispatch, sizeof(dispatch) - 1);

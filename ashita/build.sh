@@ -38,7 +38,7 @@ PATH="$LLVM_BIN:$PATH" clang-cl --target=i686-pc-windows-msvc /nologo /std:c++20
 
 echo "Built $OUT/portfix.dll"
 if [ "${1:-}" = install ]; then
-    if ps -eo args= | grep -q "[P]layOnlineViewer.pol\.exe"; then echo "pol.exe is running (the dll may be loaded) - not installing"; exit 1; fi
+    if ps -eo args= | grep -qE "[P]layOnlineViewer.pol\.exe|[A]shita.openpol\.exe"; then echo "pol.exe is running (the dll may be loaded) - not installing"; exit 1; fi
     cp "$OUT/portfix.dll" "$ASHITA_DIR/plugins/portfix.dll"
     echo "Installed to $ASHITA_DIR/plugins/portfix.dll"
 fi

@@ -1,13 +1,15 @@
 -- portfix for Windower 4. The fixes are in portfix.dll, next to this file.
 _addon.name     = 'portfix'
 _addon.author   = 'voetre'
-_addon.version  = '1.3.2'
+_addon.version  = '1.4.1'
 _addon.commands = {'portfix'}
 
-local fixes = {'water', 'halo', 'shine', 'disint'}
-local about = {water = 'black water fix', halo = 'summon halo fix', shine = 'sphere-map shine fix', disint = 'disintegrate effect fix'}
-local state = {water = true, halo = true, shine = true, disint = true}
+local fixes = {'water', 'halo', 'shine', 'disint', 'mouse'}
+local about = {water = 'black water fix', halo = 'summon halo fix', shine = 'sphere-map shine fix', disint = 'disintegrate effect fix', mouse = 'menu mouse position fix for windowed modes'}
+local state = {water = true, halo = true, shine = true, disint = true, mouse = true}
 local debug_on = false
+local halomax = 0
+local halomax_default = 0.018
 
 local function log(text)
     windower.add_to_chat(207, '[portfix] ' .. text)
@@ -27,7 +29,7 @@ end
 
 local function apply()
     if core then
-        core.set(state.water, state.halo, state.disint, state.shine)
+        core.set(state.water, state.halo, state.disint, state.shine, state.mouse)
     end
 end
 apply()
@@ -53,7 +55,10 @@ check_update()
 
 windower.register_event('unload', function()
     if core then
-        core.set(false, false, false, false)
+        core.set(false, false, false, false, false)
+        if core.halomax then
+            core.halomax(0)
+        end
     end
 end)
 
@@ -70,6 +75,19 @@ windower.register_event('addon command', function(name, arg)
         end
         apply()
         log(name .. ' - ' .. (state[name] and 'on' or 'off'))
+    elseif name == 'halomax' then
+        local yalms = arg == 'on' and halomax_default or arg == 'off' and 0 or tonumber(arg)
+        if arg and (not yalms or (yalms <= 0 and arg ~= 'off')) then
+            log('//portfix halomax [yalms|on|off] - a number above 0, for example 0.018')
+        else
+            if arg then
+                halomax = yalms
+                if core and core.halomax then
+                    core.halomax(halomax)
+                end
+            end
+            log('halomax - ' .. (halomax > 0 and ('%.3f yalms'):format(halomax) or 'off'))
+        end
     elseif name == 'debug' then
         if arg == 'on' then
             debug_on = true
@@ -86,11 +104,13 @@ windower.register_event('addon command', function(name, arg)
         for _, n in ipairs(fixes) do
             log(n .. ' - ' .. (state[n] and 'on' or 'off'))
         end
+        log('halomax - ' .. (halomax > 0 and ('%.3f yalms'):format(halomax) or 'off'))
     else
         log('//portfix - list fixes and their state')
         for _, n in ipairs(fixes) do
             log('//portfix ' .. n .. ' [on|off] - ' .. about[n])
         end
+        log('//portfix halomax [yalms|on|off] - limit how far halos spread from the model at a distance (off by default)')
         log('//portfix debug [on|off] - log details for a bug report (off by default)')
         log('//portfix help - this list')
     end

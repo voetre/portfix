@@ -95,8 +95,8 @@ const char* Fixes::SetDisint(const bool on)
 // own, DXVK, dgVoodoo...), the back buffer and the capabilities the fixes check.
 void Fixes::DebugReport(const char* version) const
 {
-    PF_DEBUG("portfix %s: water %s, halo %s, shine %s (split %s), disint %s", version, m_Water ? "on" : "off", m_Halo ? "on" : "off",
-             m_Shine ? "on" : "off", m_Split ? "on" : "off", m_Disint ? "on" : "off");
+    PF_DEBUG("portfix %s: water %s, halo %s, shine %s (split %s), disint %s, mouse %s", version, m_Water ? "on" : "off", m_Halo ? "on" : "off",
+             m_Shine ? "on" : "off", m_Split ? "on" : "off", m_Disint ? "on" : "off", m_Mouse ? "on" : "off");
     for (const char* dll : {"d3d8.dll", "d3d9.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "wined3d.dll"})
         if (HMODULE m = ::GetModuleHandleA(dll))
         {
@@ -166,6 +166,8 @@ void Fixes::DebugReport(const char* version) const
 
 void Fixes::Release(void)
 {
+    SetMouse(false);
+    SetHaloMax(0.0f);
     SetSplit(false);
     SetDisint(false);
     WaterRelease();
@@ -352,6 +354,8 @@ void Fixes::WaterFlush(void)
 // steps, and ~3 px nudges (PS2 frame pixels, kept as-is) don't separate the ghosts at 4096.
 // The fix draws those quads from the full-size silhouette and scales the nudges by render width / 640.
 // Quads: XYZRHW|DIFFUSE|TEX1 (stride 28), a 4-vertex strip from (dx, dy) to (w + dx, h + dy).
+// Optional cap (/portfix halomax): the nudges stay the same size on screen, so against the model they grow with
+// distance, on the PS2 too. With a cap they shrink once they would reach further than that many yalms.
 bool Fixes::HaloDraw(const D3DPRIMITIVETYPE t, const UINT count, const void* data)
 {
     DWORD fvf = 0;
@@ -373,6 +377,14 @@ bool Fixes::HaloDraw(const D3DPRIMITIVETYPE t, const UINT count, const void* dat
         m_HaloSrc = tex;
         m_HaloLow = rt;
         rt->Release();
+        m_HaloDepth = 0.0f;
+        float at[3];
+        if (m_HaloMax > 0.0f && SkinnedAt(at))
+        {
+            D3DMATRIX view{};
+            m_Device->GetTransform(D3DTS_VIEW, &view);
+            m_HaloDepth = std::fabs(at[0] * view._13 + at[1] * view._23 + at[2] * view._33 + view._43);
+        }
         return false;
     }
     rt->Release();
@@ -390,12 +402,26 @@ bool Fixes::HaloDraw(const D3DPRIMITIVETYPE t, const UINT count, const void* dat
     std::memcpy(&x0, v, 4);
     std::memcpy(&y0, v + 4, 4);
     const float k = static_cast<float>(d.Width) / 640.0f;
+    // The nudge is a fixed part of the picture: x0 / 640 of its width and y0 / 640 of its height, whatever the render
+    // size, so at depth z it spans (x0 / 320 * z / P00, y0 / 320 * z / P11) yalms and grows with distance.
+    float scale = 1.0f;
+    if (m_HaloMax > 0.0f && m_HaloDepth > 0.0f)
+    {
+        D3DMATRIX proj{};
+        m_Device->GetTransform(D3DTS_PROJECTION, &proj);
+        if (proj._11 > 0.0f && proj._22 > 0.0f)
+        {
+            const float sep = std::hypot(x0 / 320.0f * m_HaloDepth / proj._11, y0 / 320.0f * m_HaloDepth / proj._22);
+            if (sep > m_HaloMax)
+                scale = m_HaloMax / sep;
+        }
+    }
     for (int i = 0; i < 4; ++i)
     {
         float xy[2];
         std::memcpy(xy, v + i * 28, 8);
-        xy[0] += x0 * (k - 1.0f);
-        xy[1] += y0 * (k - 1.0f);
+        xy[0] += x0 * (k * scale - 1.0f);
+        xy[1] += y0 * (k * scale - 1.0f);
         std::memcpy(v + i * 28, xy, 8);
     }
     m_Device->SetTexture(0, m_HaloSrc);

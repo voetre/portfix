@@ -5,6 +5,7 @@
 #include "fixes.h"
 #include "update.h"
 
+#include <cstdio>
 #include <cstdlib>
 
 #include <string>
@@ -36,6 +37,14 @@ class PortFix final : public IPlugin, public Fixes
     void Print(const std::string& msg) const
     {
         m_AshitaCore->GetChatManager()->Write(1, false, (Ashita::Chat::Header("portfix") + Ashita::Chat::Message(msg)).c_str());
+    }
+    std::string HaloMaxText(void) const
+    {
+        if (m_HaloMax <= 0.0f)
+            return "off";
+        char text[32];
+        std::snprintf(text, sizeof(text), "%.3f yalms", m_HaloMax);
+        return text;
     }
 
 public:
@@ -71,6 +80,8 @@ public:
             Print(std::string("disint - off: ") + error);
         if (const char* error = SetSplit(m_Shine))
             Print(std::string("shine - merged batches off: ") + error);
+        if (const char* error = SetMouse(true))
+            Print(std::string("mouse - off: ") + error);
         return true;
     }
     void Direct3DPresent(const RECT*, const RECT*, HWND, const RGNDATA*) override
@@ -97,7 +108,7 @@ public:
     }
     bool Direct3DDrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, CONST void* data, UINT stride) override { return OnDrawPrimitiveUP(t, count, data, stride); }
 
-    // /portfix [help] | /portfix <water|halo|shine|disint> [on|off]
+    // /portfix [help] | /portfix <water|halo|shine|disint|mouse> [on|off] | /portfix halomax [yalms|on|off]
     bool HandleCommand(int32_t mode, const char* command, bool injected) override
     {
         std::vector<std::string> args;
@@ -124,6 +135,24 @@ public:
             else
                 Print(std::string("disint - ") + (m_Disint ? "on" : "off"));
         }
+        else if (sub == "mouse")
+        {
+            const bool on = arg == "on" ? true : arg == "off" ? false : !m_Mouse;
+            if (const char* error = SetMouse(on))
+                Print(std::string("mouse - off: ") + error);
+            else
+                Print(std::string("mouse - ") + (m_Mouse ? "on" : "off"));
+        }
+        else if (sub == "halomax")
+        {
+            const float yalms = arg == "on" ? HaloMaxDefault : arg == "off" ? 0.0f : static_cast<float>(std::atof(arg.c_str()));
+            if (!arg.empty() && arg != "off" && yalms <= 0.0f)
+                Print("/portfix halomax [yalms|on|off] - a number above 0, for example 0.018");
+            else if (const char* error = arg.empty() ? nullptr : SetHaloMax(yalms))
+                Print(std::string("halomax - off: ") + error);
+            else
+                Print("halomax - " + HaloMaxText());
+        }
         else if (sub == "debug")
         {
             const bool on = arg == "on" ? true : arg == "off" ? false : !DebugLog::On();
@@ -146,16 +175,20 @@ public:
         {
             Print(std::string("water - ") + (m_Water ? "on" : "off"));
             Print(std::string("halo - ") + (m_Halo ? "on" : "off"));
+            Print("halomax - " + HaloMaxText());
             Print(std::string("shine - ") + (m_Shine ? "on" : "off"));
             Print(std::string("disint - ") + (m_Disint ? "on" : "off"));
+            Print(std::string("mouse - ") + (m_Mouse ? "on" : "off"));
         }
         else
         {
             Print("/portfix - list fixes and their state");
             Print("/portfix water [on|off] - black water fix");
             Print("/portfix halo [on|off] - summon halo fix");
+            Print("/portfix halomax [yalms|on|off] - limit how far halos spread from the model at a distance (off by default)");
             Print("/portfix shine [on|off] - metal shine fix (sphere-map and highlight)");
             Print("/portfix disint [on|off] - disintegrate effect fix");
+            Print("/portfix mouse [on|off] - menu mouse position fix for windowed modes");
             Print("/portfix debug [on|off] - log details for a bug report (off by default)");
             Print("/portfix help - this list");
         }

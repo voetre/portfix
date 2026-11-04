@@ -17,7 +17,7 @@ cp portfix/portfix.lua "$OUT/portfix/"
 
 echo "Built $OUT/portfix"
 if [ "${1:-}" = install ]; then
-    if ps -eo args= | grep -q "[P]layOnlineViewer.pol\.exe"; then echo "pol.exe is running (the dll may be loaded) - not installing"; exit 1; fi
+    if ps -eo args= | grep -qE "[P]layOnlineViewer.pol\.exe|[A]shita.openpol\.exe"; then echo "pol.exe is running (the dll may be loaded) - not installing"; exit 1; fi
     mkdir -p "$WINDOWER_DIR/addons/portfix"
     cp "$OUT/portfix/portfix.dll" "$OUT/portfix/portfix.lua" "$WINDOWER_DIR/addons/portfix/"
     echo "Installed to $WINDOWER_DIR/addons/portfix"

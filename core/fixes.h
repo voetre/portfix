@@ -16,6 +16,9 @@ public:
     bool m_Shine               = true;
     bool m_Disint              = false; // set through SetDisint: it patches the game's code
     bool m_Split               = false; // set through SetSplit: shine batches the PC files merged (patches the skinning call)
+    static constexpr float HaloMaxDefault = 0.018f; // /portfix halomax on: the widest nudge at the default camera, about 5 yalms away
+    bool m_Mouse               = false; // set through SetMouse: mouse position in a window (patches an import)
+    float m_HaloMax            = 0.0f;  // set through SetHaloMax: furthest a halo ghost may sit from the model, yalms; 0: the game's (off)
 
     virtual ~Fixes() = default;
     virtual void RawDrawPrimitive(D3DPRIMITIVETYPE t, UINT start, UINT count)                  = 0;
@@ -31,6 +34,8 @@ public:
     // nullptr when it's in the state asked for, or the reason it couldn't be turned on.
     const char* SetDisint(bool on);
     const char* SetSplit(bool on);
+    const char* SetHaloMax(float yalms);
+    const char* SetMouse(bool on);
     void Release(void);
     // The setup, for a bug report: with /portfix debug on (debuglog.h).
     void DebugReport(const char* version) const;
@@ -62,6 +67,7 @@ private:
 
     IDirect3DBaseTexture8* m_HaloSrc = nullptr; // this frame's silhouette and its 256x256 copy's surface (identity only, not held)
     IDirect3DSurface8* m_HaloLow     = nullptr;
+    float m_HaloDepth                = 0.0f; // the halo's model's distance from the camera along the view, yalms; 0: not known
 
     bool WaterSurface(void) const;
     static constexpr float WaterLift = 0.05f; // yalms; Bastok Markets' water lies 0.0415 under the canal's plane
@@ -87,6 +93,7 @@ private:
     bool SpotDraw(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count);
 
     // disint.cpp
+    static bool SkinnedAt(float at[3]); // where the model skinned last stands (halo cap)
     const char* DisintInstall(void);
     void DisintRemove(void);
     bool DisintDraw(D3DPRIMITIVETYPE t, UINT minIndex, UINT numVerts, UINT startIndex, UINT count);

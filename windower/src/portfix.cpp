@@ -32,9 +32,13 @@ namespace
     std::atomic<bool> g_WantHalo{true};
     std::atomic<bool> g_WantShine{true};
     std::atomic<bool> g_WantDisint{true};
+    std::atomic<bool> g_WantMouse{true};
     std::atomic<bool> g_WantDebug{false}; // /portfix debug: lines go to portfix.log next to the dll
+    std::atomic<float> g_WantHaloMax{0.0f}; // /portfix halomax, yalms; 0: off
     bool g_DisintFailed = false; // the patch couldn't be made (another client version): not tried again
     bool g_SplitFailed  = false; // the same, for the shine fix's merged batches
+    bool g_HaloMaxFailed = false; // the same, for the halo cap
+    bool g_MouseFailed   = false; // the same, for the mouse fix
 
     class WindowerFixes final : public Fixes
     {
@@ -67,6 +71,10 @@ namespace
                 g_DisintFailed = g_Fixes.SetDisint(on) != nullptr;
             if (const bool on = g_WantShine; on != g_Fixes.m_Split && !g_SplitFailed)
                 g_SplitFailed = g_Fixes.SetSplit(on) != nullptr;
+            if (const float yalms = g_WantHaloMax; yalms != g_Fixes.m_HaloMax && !g_HaloMaxFailed)
+                g_HaloMaxFailed = g_Fixes.SetHaloMax(yalms) != nullptr;
+            if (const bool on = g_WantMouse; on != g_Fixes.m_Mouse && !g_MouseFailed)
+                g_MouseFailed = g_Fixes.SetMouse(on) != nullptr;
             if (const bool on = g_WantDebug; on != DebugLog::On())
             {
                 if (on)
@@ -183,6 +191,7 @@ namespace
         lua_CFunction func;
     };
     void (*lua_createtable)(lua_State*, int, int);
+    double (*lua_tonumber)(lua_State*, int);
     void (*luaL_register)(lua_State*, const char*, const luaL_Reg*);
     int (*lua_toboolean)(lua_State*, int);
     void (*lua_pushboolean)(lua_State*, int);
@@ -207,13 +216,14 @@ namespace
         return 2;
     }
 
-    // set(water, halo, disint, shine)
+    // set(water, halo, disint, shine, mouse)
     int LuaSet(lua_State* L)
     {
         g_WantWater  = lua_toboolean(L, 1) != 0;
         g_WantHalo   = lua_toboolean(L, 2) != 0;
         g_WantDisint = lua_toboolean(L, 3) != 0;
         g_WantShine  = lua_toboolean(L, 4) != 0;
+        g_WantMouse  = lua_toboolean(L, 5) != 0;
         return 0;
     }
 
@@ -221,6 +231,13 @@ namespace
     int LuaDebug(lua_State* L)
     {
         g_WantDebug = lua_toboolean(L, 1) != 0;
+        return 0;
+    }
+
+    // halomax(yalms): the halo cap, 0 for off, applied at the next Present
+    int LuaHaloMax(lua_State* L)
+    {
+        g_WantHaloMax = static_cast<float>(lua_tonumber(L, 1));
         return 0;
     }
 
@@ -250,15 +267,15 @@ extern "C" __declspec(dllexport) void portfix_set(const int water, const int hal
     g_WantShine  = shine != 0;
 }
 
-// package.loadlib(path, "luaopen_portfix")() -> { start = fn, set = fn, update = fn, debug = fn }
+// package.loadlib(path, "luaopen_portfix")() -> { start = fn, set = fn, update = fn, debug = fn, halomax = fn }
 extern "C" __declspec(dllexport) int luaopen_portfix(lua_State* L)
 {
     const HMODULE lua = GetModuleHandleW(L"LuaCore.dll");
     if (lua == nullptr || !Import(lua, "lua_createtable", lua_createtable) || !Import(lua, "luaL_register", luaL_register) ||
-        !Import(lua, "lua_toboolean", lua_toboolean) || !Import(lua, "lua_pushboolean", lua_pushboolean) || !Import(lua, "lua_pushstring", lua_pushstring))
+        !Import(lua, "lua_toboolean", lua_toboolean) || !Import(lua, "lua_pushboolean", lua_pushboolean) || !Import(lua, "lua_pushstring", lua_pushstring) || !Import(lua, "lua_tonumber", lua_tonumber))
         return 0;
-    static const luaL_Reg funcs[] = {{"start", LuaStart}, {"set", LuaSet}, {"update", LuaUpdate}, {"debug", LuaDebug}, {nullptr, nullptr}};
-    lua_createtable(L, 0, 4);
+    static const luaL_Reg funcs[] = {{"start", LuaStart}, {"set", LuaSet}, {"update", LuaUpdate}, {"debug", LuaDebug}, {"halomax", LuaHaloMax}, {nullptr, nullptr}};
+    lua_createtable(L, 0, 5);
     luaL_register(L, nullptr, funcs);
     return 1;
 }
