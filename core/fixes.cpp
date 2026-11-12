@@ -53,7 +53,11 @@ bool Fixes::OnDrawPrimitiveUP(const D3DPRIMITIVETYPE t, const UINT count, const 
         DisintBeforeDraw();
     if (m_WaterHeld)
         WaterFlush();
-    return m_Halo && stride == 28 && HaloDraw(t, count, data);
+    if (stride != 28)
+        return false;
+    if (m_Buttons && ButtonDraw(t, count, data))
+        return true;
+    return m_Halo && HaloDraw(t, count, data);
 }
 
 void Fixes::OnPresent(void)
@@ -62,6 +66,7 @@ void Fixes::OnPresent(void)
     m_WaterState.Clear(); // and its references let go: none may outlive the frame (a device reset needs them gone)
     m_HaloSrc   = nullptr;
     m_HaloLow   = nullptr;
+    m_ButtonShadows = 0;
     if (m_Disint)
         DisintPresent();
 }
@@ -431,6 +436,80 @@ bool Fixes::HaloDraw(const D3DPRIMITIVETYPE t, const UINT count, const void* dat
     m_Drawing = false;
     m_Device->SetTexture(0, tex);
     return true;
+}
+
+// Menu buttons (the title menu, the config window, Load and Save, Yes and No). Each is two quads from the same texture: a
+// black copy, alpha blended, a few pixels down and right as a drop shadow, then the coloured body on top, added
+// (SRCALPHA, ONE). Over the shadow the sum is the body's colour; along the body's top and left edge, which the shadow
+// doesn't cover, it adds to the scene behind instead and shows as a lighter, see-through rim that changes with the
+// background. A disabled button's body is alpha blended and has no rim, nor does the PS2's menu.
+// The fix draws such a body (an added quad with a shadow quad of the same texture, size and uv just down and right
+// of it) with INVSRCALPHA. Where the shadow lies under it the result is the same: the shadow is opaque black there.
+// Quads: XYZRHW|DIFFUSE|TEX1 (stride 28), a 4-vertex strip.
+bool Fixes::ButtonDraw(const D3DPRIMITIVETYPE t, const UINT count, const void* data)
+{
+    if (t != D3DPT_TRIANGLESTRIP || count != 2)
+        return false;
+    DWORD fvf = 0, blend = 0, src = 0, dst = 0;
+    m_Device->GetVertexShader(&fvf);
+    if (fvf != (D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1))
+        return false;
+    m_Device->GetRenderState(D3DRS_ALPHABLENDENABLE, &blend);
+    m_Device->GetRenderState(D3DRS_SRCBLEND, &src);
+    m_Device->GetRenderState(D3DRS_DESTBLEND, &dst);
+    if (blend == FALSE || src != D3DBLEND_SRCALPHA || (dst != D3DBLEND_ONE && dst != D3DBLEND_INVSRCALPHA))
+        return false;
+    IDirect3DBaseTexture8* tex = nullptr;
+    m_Device->GetTexture(0, &tex);
+    if (tex == nullptr)
+        return false;
+    tex->Release(); // the stage still holds it
+
+    const auto* v = static_cast<const BYTE*>(data);
+    ButtonShadow q{tex, 1e30f, 1e30f, -1e30f, -1e30f, 1e30f, 1e30f, -1e30f, -1e30f};
+    bool black = true;
+    for (int i = 0; i < 4; ++i)
+    {
+        float xy[2], uv[2];
+        DWORD c;
+        std::memcpy(xy, v + i * 28, 8);
+        std::memcpy(&c, v + i * 28 + 16, 4);
+        std::memcpy(uv, v + i * 28 + 20, 8);
+        q.x0 = (std::min)(q.x0, xy[0]), q.x1 = (std::max)(q.x1, xy[0]);
+        q.y0 = (std::min)(q.y0, xy[1]), q.y1 = (std::max)(q.y1, xy[1]);
+        q.u0 = (std::min)(q.u0, uv[0]), q.u1 = (std::max)(q.u1, uv[0]);
+        q.v0 = (std::min)(q.v0, uv[1]), q.v1 = (std::max)(q.v1, uv[1]);
+        black = black && ((c >> 16) & 0xFF) <= 0x10 && ((c >> 8) & 0xFF) <= 0x10 && (c & 0xFF) <= 0x10;
+    }
+    if (dst == D3DBLEND_INVSRCALPHA)
+    {
+        if (black && m_ButtonShadows < ButtonShadowMax)
+            m_ButtonShadow[m_ButtonShadows++] = q;
+        return false;
+    }
+    const float w = q.x1 - q.x0, h = q.y1 - q.y0;
+    if (w <= 0.0f || h <= 0.0f)
+        return false;
+    const auto same = [](const float a, const float b, const float e) { return std::fabs(a - b) <= e; };
+    for (int i = 0; i < m_ButtonShadows; ++i)
+    {
+        const ButtonShadow& s = m_ButtonShadow[i];
+        const float dx = s.x0 - q.x0, dy = s.y0 - q.y0;
+        // the body may be a pixel or so shorter or narrower than its shadow (the config window's small buttons:
+        // 48x15 over a 48x16 shadow), from the same corner of the texture
+        const float crop = (std::max)(1.5f, h * 0.1f);
+        if (s.tex != tex || !same(s.x1 - s.x0, w, crop) || !same(s.y1 - s.y0, h, crop) || dx <= 0.0f || dy <= 0.0f || dx > h * 0.25f || dy > h * 0.25f ||
+            !same(s.u0, q.u0, 1e-3f) || !same(s.v0, q.v0, 1e-3f) || !same(s.u1, q.u1, 0.05f) || !same(s.v1, q.v1, 0.05f))
+            continue;
+        DebugLog::Once("buttons", "buttons: first button body drawn alpha blended (%.0fx%.0f, shadow %.2f,%.2f)", w, h, dx, dy);
+        m_Device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+        m_Drawing = true;
+        RawDrawPrimitiveUP(t, count, data, 28);
+        m_Drawing = false;
+        m_Device->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
+        return true;
+    }
+    return false;
 }
 
 // Sphere-mapped shine (Warlord Rojgnoj's gold plates, and other models with an 'evev' texture). The PS2 draws the

@@ -358,6 +358,33 @@ The capture rule, piece motion, timings and draw states are the PS2's, read from
 - 60 effect ticks a second and 30 PS2 frames a second are assumed for timing.
 - Compared by eye with PS2 recordings, aligned on the effect's colour changes.
 
+## Menu button rims
+
+### Symptom
+
+On the title and character screens, every enabled button has a light, see-through rim 1 to 3 pixels wide along its top and left edges: the title menu, the config window, Load and Save on the character list, and the Yes and No of dialogs. It is brighter over a brighter background. The PS2 menu has no rim.
+
+### Draw sequence
+
+Each button is a pill in three XYZRHW quads (left end, middle, right end) from one 128x128 texture, drawn twice:
+
+1. A shadow: the pill in black (diffuse `FF010101`), alpha blended (SRCALPHA, INVSRCALPHA), 2.6 x 1.5 to 2 pixels down and right of the body at 1920x1080. The selected button's shadow is 5.6 x 4.4 pixels away, so that button looks raised.
+2. The body: the same quads in the button's colour, added (SRCALPHA, ONE). A disabled button's body (Create Character with no free slot) is alpha blended instead, and has no rim.
+
+The config window's smaller buttons are the same, except that the body is cropped a pixel shorter than its shadow (48x15 over 48x16) and its uv ends a little sooner.
+
+### Cause
+
+The body is added to what is under it. Over the shadow that is black, so the result is the body's colour. Along the top and left edge the shadow isn't under it, so the body is added to the scene behind the menu. That strip is the rim. Measured on Delete Character at 1920x1080: the rim is brighter than the body just inside it by (50, 45, 41) at the top and (53, 48, 50) at the left, close to the background there, (60, 57, 60).
+
+### Fix
+
+A body quad is drawn with DESTBLEND INVSRCALPHA when a shadow quad was drawn earlier in the frame with the same texture, size and uv, and lies down and right of it by no more than a quarter of its height. The body may be up to 1.5 pixels (or a tenth of its height) smaller than the shadow, starting from the same texture corner. Under the shadow the result is the same, because the shadow is opaque black there. Only the uncovered edge changes, and it now shows the body as a disabled button does. Glyph shadows are not black, so text is untouched.
+
+### Faithfulness
+
+The PS2 buttons are different, lower-resolution art, so this matches the PS2 in that its buttons have no rim, not pixel for pixel. Tested on Ashita at 1920x1080 under Proton, with the fix off and on: the title menu (selected, unselected and disabled buttons), the config window, the character list's Load and Save, and the log-in Yes and No. The rim is gone on every one of them. The character slots are drawn another way and are unchanged. The in-game HUD is unchanged with the fix on or off. Delete Character's screens and in-game menus were not checked.
+
 ## Menu mouse position
 
 ### Symptom

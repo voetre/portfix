@@ -62,6 +62,14 @@ Some effects break a model up, most notably the Shadow Lord's change of form in 
 | https://github.com/user-attachments/assets/e4dc0fc8-a7fa-40bc-849b-1b7e05213d57 |
 | PS2 at 3x resolution, PC with no fix, PC with portfix |
 
+### Menu button rims
+
+The buttons on the title and character screens (the title menu, the config window, Load and Save, Yes and No) have a light, see-through rim along their top and left edges, brighter over a bright background. The PS2 buttons have none. The fix removes the rim.
+
+| PS2, PC with no fix, PC with portfix |
+|---|
+| ![Title menu buttons: PS2, PC fix off, PC fix on](media/buttons-ps2-off-on.jpg) |
+
 ### Menu mouse position
 
 In a window, the mouse is measured against a window frame of the standard size. When the real frame differs, as it does under Wine or Proton, the title screen's buttons highlight when the pointer is above them. The fix measures against the window's real frame.
@@ -77,6 +85,7 @@ Ashita: `/portfix`. Windower: `//portfix` in chat, `portfix` in the console.
 | `/portfix halo [on\|off]` | Summon halo fix. No argument toggles. |
 | `/portfix halomax [yalms\|on\|off]` | Limit how far halos spread from the model. Off by default. `on` keeps the spread seen with the default camera (0.018 yalms). No argument shows the setting. |
 | `/portfix shine [on\|off]` | Sphere-map and weapon shine fixes. No argument toggles. |
+| `/portfix buttons [on\|off]` | Menu button rim fix. No argument toggles. |
 | `/portfix disint [on\|off]` | Disintegrate effect fix. No argument toggles. |
 | `/portfix mouse [on\|off]` | Menu mouse position fix. No argument toggles. |
 | `/portfix debug [on\|off]` | Log details for a bug report. Off by default. |

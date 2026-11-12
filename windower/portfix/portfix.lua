@@ -1,12 +1,12 @@
 -- portfix for Windower 4. The fixes are in portfix.dll, next to this file.
 _addon.name     = 'portfix'
 _addon.author   = 'voetre'
-_addon.version  = '1.4.1'
+_addon.version  = '1.4.2'
 _addon.commands = {'portfix'}
 
-local fixes = {'water', 'halo', 'shine', 'disint', 'mouse'}
-local about = {water = 'black water fix', halo = 'summon halo fix', shine = 'sphere-map shine fix', disint = 'disintegrate effect fix', mouse = 'menu mouse position fix for windowed modes'}
-local state = {water = true, halo = true, shine = true, disint = true, mouse = true}
+local fixes = {'water', 'halo', 'shine', 'buttons', 'disint', 'mouse'}
+local about = {water = 'black water fix', halo = 'summon halo fix', shine = 'sphere-map shine fix', buttons = 'menu button rim fix', disint = 'disintegrate effect fix', mouse = 'menu mouse position fix for windowed modes'}
+local state = {water = true, halo = true, shine = true, buttons = true, disint = true, mouse = true}
 local debug_on = false
 local halomax = 0
 local halomax_default = 0.018
@@ -29,7 +29,7 @@ end
 
 local function apply()
     if core then
-        core.set(state.water, state.halo, state.disint, state.shine, state.mouse)
+        core.set(state.water, state.halo, state.disint, state.shine, state.mouse, state.buttons)
     end
 end
 apply()
@@ -55,7 +55,7 @@ check_update()
 
 windower.register_event('unload', function()
     if core then
-        core.set(false, false, false, false, false)
+        core.set(false, false, false, false, false, false)
         if core.halomax then
             core.halomax(0)
         end

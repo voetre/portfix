@@ -33,6 +33,7 @@ namespace
     std::atomic<bool> g_WantShine{true};
     std::atomic<bool> g_WantDisint{true};
     std::atomic<bool> g_WantMouse{true};
+    std::atomic<bool> g_WantButtons{true};
     std::atomic<bool> g_WantDebug{false}; // /portfix debug: lines go to portfix.log next to the dll
     std::atomic<float> g_WantHaloMax{0.0f}; // /portfix halomax, yalms; 0: off
     bool g_DisintFailed = false; // the patch couldn't be made (another client version): not tried again
@@ -66,6 +67,7 @@ namespace
                 g_Fixes.SetWater(w);
             g_Fixes.m_Halo  = g_WantHalo;
             g_Fixes.m_Shine = g_WantShine;
+            g_Fixes.m_Buttons = g_WantButtons;
             // The game's code is patched here too: the render thread is the one that runs it.
             if (const bool on = g_WantDisint; on != g_Fixes.m_Disint && !g_DisintFailed)
                 g_DisintFailed = g_Fixes.SetDisint(on) != nullptr;
@@ -216,7 +218,7 @@ namespace
         return 2;
     }
 
-    // set(water, halo, disint, shine, mouse)
+    // set(water, halo, disint, shine, mouse, buttons)
     int LuaSet(lua_State* L)
     {
         g_WantWater  = lua_toboolean(L, 1) != 0;
@@ -224,6 +226,7 @@ namespace
         g_WantDisint = lua_toboolean(L, 3) != 0;
         g_WantShine  = lua_toboolean(L, 4) != 0;
         g_WantMouse  = lua_toboolean(L, 5) != 0;
+        g_WantButtons = lua_toboolean(L, 6) != 0;
         return 0;
     }
 

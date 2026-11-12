@@ -14,6 +14,7 @@ public:
     bool m_Water               = true;
     bool m_Halo                = true;
     bool m_Shine               = true;
+    bool m_Buttons             = true;  // menu buttons: additive body over its drop shadow drawn with alpha blending
     bool m_Disint              = false; // set through SetDisint: it patches the game's code
     bool m_Split               = false; // set through SetSplit: shine batches the PC files merged (patches the skinning call)
     static constexpr float HaloMaxDefault = 0.018f; // /portfix halomax on: the widest nudge at the default camera, about 5 yalms away
@@ -77,6 +78,17 @@ private:
     void WaterFlush(void);
     void WaterRelease(void);
     bool HaloDraw(D3DPRIMITIVETYPE t, UINT count, const void* data);
+
+    // Menu buttons: this frame's drop-shadow quads (black copies of a sprite), for ButtonDraw to find a body's own.
+    struct ButtonShadow
+    {
+        IDirect3DBaseTexture8* tex; // identity only, not held
+        float x0, y0, x1, y1, u0, v0, u1, v1;
+    };
+    static constexpr int ButtonShadowMax = 64;
+    ButtonShadow m_ButtonShadow[ButtonShadowMax]{};
+    int m_ButtonShadows = 0;
+    bool ButtonDraw(D3DPRIMITIVETYPE t, UINT count, const void* data);
 
     int m_ShineTemp = -1; // the device has D3DTA_TEMP and three stages: 1, not: 0, not asked yet: -1
     bool m_SpotOps  = false; // and MODULATE4X and cube textures (set with m_ShineTemp)
