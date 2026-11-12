@@ -108,7 +108,7 @@ public:
     }
     bool Direct3DDrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, CONST void* data, UINT stride) override { return OnDrawPrimitiveUP(t, count, data, stride); }
 
-    // /portfix [help] | /portfix <water|halo|shine|disint|mouse> [on|off] | /portfix halomax [yalms|on|off]
+    // /portfix [help] | /portfix <water|halo|shine|buttons|disint|mouse> [on|off] | /portfix halomax [yalms|on|off]
     bool HandleCommand(int32_t mode, const char* command, bool injected) override
     {
         std::vector<std::string> args;
@@ -116,9 +116,9 @@ public:
             return false;
         const std::string sub = args.size() > 1 ? args[1] : "";
         const std::string arg = args.size() > 2 ? args[2] : "";
-        if (sub == "water" || sub == "halo" || sub == "shine")
+        if (sub == "water" || sub == "halo" || sub == "shine" || sub == "buttons")
         {
-            bool& on = sub == "water" ? m_Water : sub == "halo" ? m_Halo : m_Shine;
+            bool& on = sub == "water" ? m_Water : sub == "halo" ? m_Halo : sub == "shine" ? m_Shine : m_Buttons;
             on       = arg == "on" ? true : arg == "off" ? false : !on;
             if (sub == "water")
                 SetWater(on);
@@ -177,6 +177,7 @@ public:
             Print(std::string("halo - ") + (m_Halo ? "on" : "off"));
             Print("halomax - " + HaloMaxText());
             Print(std::string("shine - ") + (m_Shine ? "on" : "off"));
+            Print(std::string("buttons - ") + (m_Buttons ? "on" : "off"));
             Print(std::string("disint - ") + (m_Disint ? "on" : "off"));
             Print(std::string("mouse - ") + (m_Mouse ? "on" : "off"));
         }
@@ -187,6 +188,7 @@ public:
             Print("/portfix halo [on|off] - summon halo fix");
             Print("/portfix halomax [yalms|on|off] - limit how far halos spread from the model at a distance (off by default)");
             Print("/portfix shine [on|off] - metal shine fix (sphere-map and highlight)");
+            Print("/portfix buttons [on|off] - menu button rim fix");
             Print("/portfix disint [on|off] - disintegrate effect fix");
             Print("/portfix mouse [on|off] - menu mouse position fix for windowed modes");
             Print("/portfix debug [on|off] - log details for a bug report (off by default)");
