@@ -408,6 +408,111 @@ FFXiMain.dll's import of GetSystemMetrics is replaced. For those three metrics i
 
 Measured on the title menu at 1920x1080 under Proton and gamescope. The boundary between each pair of buttons, averaged over sweeps up and down, against the gap between them: 658/653, 698/693, 734/733, 774/772. Without the fix: 634, 674, 714, 750. Not checked on Windows, where the theme's frame can differ from the real one too.
 
+## Aura lighting
+
+### Symptom
+
+Carbuncle is darker on the PC and reads as a greener teal, where the PS2 shows a light, bright cyan (GitHub issue #3). Other summons, such as Titan, are a neutral grey-lit colour on the PC at every hour, where the PS2 lights them with the zone's light, bluish at night.
+
+Matched shots, both clients on the same spot in Port Bastok at the same Vana'diel minute, in clear weather, from the same camera: the scenery matches within about 8% at dawn. Carbuncle's body averages 90.1 169.5 195.3 on the PS2 and 78.0 147.1 167.6 on the PC (87%), and its front is a greener teal. The textures are the same (mean 42 75 78 on the PS2, 41 74 77 in the PC's DAT). There are two causes: its lighting (this section) and its glow (Effect depth). With both fixes the body averages 89.0 169.7 196.7, 99 to 101% of the PS2's.
+
+### Mechanism on the PS2
+
+Every model with an aura has a type 0x5E block in its DAT: a flags byte, two colours, and the colour and spacing of each of the halo's copies. 68 such blocks exist, for the summons and Prime avatars, many story characters and some monsters. All have flag 1. Eight have flag 1 alone (Carbuncle, Selh'teus and two others); the rest have flag 2 as well.
+
+When the actor's lighting is set up, the PS2 checks the block (and setting 200, on by default):
+
+- flag 1 without flag 2: the model's lights are switched off and its ambient set to 2.0 (1.0 is the PS2's 0x80). After the per-part scale the vertex colour is clamped to 255, so Carbuncle is drawn at 255/128 = 1.99 times its texture at any hour. Captured GS frames show every Carbuncle vertex at RGBA 255 255 255 128, at dawn and at night.
+- flag 2: nothing changes. The model is lit by the zone's ambient and lights like any other actor. At night Titan's parts are (46, 46, 60) times their scale.
+
+### Draw on the PC
+
+Character parts are drawn with fixed-function lighting: D3DRS_AMBIENT, up to four lights and MODULATE2X with the texture, so an ambient byte of 0x80 is 1.0, as on the PS2. Each part scales the ambient and the lights' diffuse by its own factor and clamps at 255.
+
+### Cause
+
+The PC's actor lighting handles the block with one branch for both kinds: if flag 2 is clear it switches the lights off, and either way it sets the ambient to a fixed 0x80707070 instead of the zone's.
+
+- Flag 1 alone: 0x70 times Carbuncle's scale of 2.0 gives E0E0E0, so the body is 1.76 times its texture against the PS2's 1.99, and no part of it clamps.
+- Flag 2: the zone's lights stay, but the ambient is a neutral 0x707070 times the part's scale, where the PS2 uses the zone's own ambient. Measured at night: Titan's parts get 707070, 868686 and 919191 on the PC; a Hume the zone's 524B5B times the same scales.
+
+### Fix
+
+The branch is rewritten in place (39 bytes, the same addresses the game's code holds):
+
+- flags & 3 = 1: the four lights are switched off and the ambient set to 0x80FFFFFF, 2.0 clamped. After the part's scale and MODULATE2X that is 2.0 times the texture, the PS2's 1.99.
+- otherwise: the code goes on to the zone's ambient, as for an actor with no block.
+
+`/portfix aura off` puts the original bytes back. If the branch isn't found (another client version) the fix stays off and Ashita prints the reason.
+
+Checked under DXVK at 1920x1080 with Carbuncle (dawn), Titan and Cait Sith (night), against PS2 captures from the same place and time: Carbuncle's ambient is 80FFFFFF with no lights, identical to drawing it unlit at 2.0, and Titan's is the zone's 524B5B times its scales with the zone's light.
+
+### Faithfulness
+
+- The PS2's 2.0 is above the byte range. Every part of the eight flag 1 models clamps to full white either way; a part with a scale under 1.0 would be one step (1/255) darker than on the PS2.
+- The rest of Carbuncle's PS2 colour is its glow lying over the whole body: see Effect depth.
+- At night the PC's scenery and ordinary characters are brighter and bluer than the PS2's too. That is the zone's lighting, not this block, and isn't changed.
+
+## Effect depth
+
+### Symptom
+
+On the PS2 a summon's glow (Carbuncle's `efon` glow discs, op 0x30 bias -0.7, and sparkles, -0.5) lies over its whole body: a soft blue light, brightest at the middle. On the PC the same glow shows only on the parts behind the middle of the model (its rear, ears and tail); the head and chest, nearer the camera, have none.
+
+Measured by filling Carbuncle's texture with flat colours on both clients (the PS2 palette in EE memory, the PC's DXT texture). The PS2 body is 2 x texture + a radial blue of (15, 38, 59) to (21, 49, 76): black gives that blue, 16 16 16 gives 2 x 16 more. The PC's head and chest give exactly 2 x texture, black for black.
+
+### Mechanism on the PS2
+
+A particle element can carry a depth bias, set by op 0x30 in its generator. When the element is drawn, its depth buffer value is raised by Z(d) - Z(d - bias), where d is its view depth and Z is the PS2's depth (1677721.6 / d - 25.5, larger is nearer): it is tested as if bias yalms nearer the camera, without moving on screen. Flag bit 22 of the element switches the bias off; with bit 27 it is in depth units, -bias x 2000. The glow discs sit at the model's middle, so with the bias of -0.7 they pass the depth test over the near half of the body too. Setting the bias to 0 in the PS2's memory makes the PS2 look like the PC: glow on the rear parts only.
+
+### Cause
+
+The PC copies op 0x30's value into the element and keeps the same flags (bits 22 and 27 at the same places), but only puts it into the element's sort key. Its depth test uses the element's true depth, so the near half of the model hides the glow.
+
+### Fix
+
+The element's draw setup is hooked (a 6-byte jump at its entry, the moved instruction in a trampoline). The setup records the element's flags, bias and view depth; for that element's 3D draws the projection's depth is moved by the PS2's amount and put back after the draw. Both depths are linear in 1/d, so a fixed change in the PS2's Z is a fixed change in D3D's: z += _43 x (1/d - 1/(d - bias)), or _43 x (-bias x 2000 / 1677721.6) with bit 27, added to the projection's z column (_33 += z x _34). The game sets the projection again between the setup and the draw, so the change is made in the draw hooks, not in the setup.
+
+`/portfix depth off` takes the hook out. If the setup isn't found (another client version, or another plugin hooked it) the fix stays off and Ashita prints the reason.
+
+Checked under DXVK at 1920x1080 with Carbuncle: with its texture black, the glow covers the whole body as on the PS2; with its own texture and both this and the aura fix, its body averages 99 to 101% of the PS2's, the same light cyan.
+
+### Faithfulness
+
+- The change is per element, from its view depth, as on the PS2; the PS2's depth is only used to scale the raw (bit 27) case.
+- Every effect with a depth bias is affected, not only summons. Only Carbuncle's glow and sparkles were compared with the PS2.
+- On the PS2 the summon is also drawn into an off-screen copy that its three halo copies come from (see Summon halos). That isn't changed.
+
+## Night lighting
+
+### Symptom
+
+At night the PC's ground and characters are much brighter than the PS2's, lit by a bluish light from above that casts sharp shadows. Matched at 22:00 in Port Bastok, clear weather, same camera: the ground is 71 68 93 on the PC against 33 33 43 on the PS2, while walls are about the same (37 33 39 against 35 33 41). A summon's leg is 48 46 62 against 19 18 24.
+
+The game's own settings don't cause it: brightness (0028) is 0, and turning enhanced shading (0017) off doesn't change the ground.
+
+### Mechanism on the PS2
+
+A zone's lighting for each hour has a sun colour, a moon colour, an ambient colour and an intensity. When the PS2 builds the zone's lights, light 0 is the sun's colour (0 at night in the data) and light 1 is the moon's, but only where the zone setup allows it: zone ids under 100 or over 539, and 129, 136, 137, 138, 155, 156, 164, 171, 175, 182, 189, 199 and 219. Port Bastok (236) isn't one, so its nights are lit by the ambient colour alone: every vertex of the ground and of a summon is the same flat (45, 45, 59) at 22:00, which is the ambient (0.345, 0.345, 0.455) x 128.
+
+### Cause
+
+The PC's environment test for the moon is the PS2's without the zone check, and nothing else in the PC client has that zone list. Its hourly update sets the moon's colour for the scenery and for characters from the hour's record in every zone, and the scene and character lights switch to the moon when the sun is below the horizon. The moon points almost straight down, so it brightens the ground and anything facing up but hardly the walls.
+
+### Fix
+
+The environment's hourly update is hooked (a 5-byte jump at its entry). After it runs, if the zone isn't one the PS2 lights with the moon, the moon's colours for the scenery and for characters are set to 0, so the lights built from them are 0 as on the PS2. In the PS2's moonlit zones nothing changes.
+
+`/portfix night off` takes the hook out; the moon comes back with the next hourly update. If the update isn't found (another client version, or another plugin hooked it) the fix stays off and Ashita prints the reason.
+
+Checked under DXVK at 1920x1080 in Port Bastok at 22:00: the ground goes from 71 68 93 to 26 24 31 (PS2 33 33 43), the summon's leg from 48 46 62 to 21 18 23 (PS2 19 18 24), and the characters' night light is 0.
+
+### Faithfulness
+
+- With the fix the PC's night scenery is still about 20% darker and a little less blue than the PS2's at the same hour. The PC eases its colours between hours, so at a frozen 22:00 its sun is still fading out (0.243 0.184 0.114) where the PS2's is already 0; not followed further.
+- Characters still cast a shadow at night on the PC. The PS2 shows none in the same scene; not looked into.
+- Only Port Bastok was compared. The rule is the PS2's zone list, so moonlit zones keep the moon.
+
 ## Verification
 
 Tested on the PC client under Wine using both Ashitav4 and Windower 4 with DXVK at 1920x1080. Not tested on Windows. The disintegrate fix has been tested on Ashita only (Throne Room cutscene 32004), as has the shine fix (Qu'Bia Arena cutscene 32004). Both are built for Windower but not yet run there.

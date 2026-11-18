@@ -19,6 +19,9 @@ public:
     bool m_Split               = false; // set through SetSplit: shine batches the PC files merged (patches the skinning call)
     static constexpr float HaloMaxDefault = 0.018f; // /portfix halomax on: the widest nudge at the default camera, about 5 yalms away
     bool m_Mouse               = false; // set through SetMouse: mouse position in a window (patches an import)
+    bool m_Aura                = false; // set through SetAura: lighting of models with an aura (patches the game's code)
+    bool m_Depth               = false; // set through SetDepth: effects' depth bias (hooks the game's effect draw setup)
+    bool m_Night               = false; // set through SetNight: no moonlight where the PS2 has none (hooks the hourly lighting update)
     float m_HaloMax            = 0.0f;  // set through SetHaloMax: furthest a halo ghost may sit from the model, yalms; 0: the game's (off)
 
     virtual ~Fixes() = default;
@@ -37,6 +40,12 @@ public:
     const char* SetSplit(bool on);
     const char* SetHaloMax(float yalms);
     const char* SetMouse(bool on);
+    const char* SetAura(bool on);
+    const char* SetDepth(bool on);
+    const char* SetNight(bool on);
+    void DepthPresent(void);
+    bool DepthBegin(D3DMATRIX* saved);
+    void DepthEnd(const D3DMATRIX& saved);
     void Release(void);
     // The setup, for a bug report: with /portfix debug on (debuglog.h).
     void DebugReport(const char* version) const;

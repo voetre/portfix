@@ -82,6 +82,12 @@ public:
             Print(std::string("shine - merged batches off: ") + error);
         if (const char* error = SetMouse(true))
             Print(std::string("mouse - off: ") + error);
+        if (const char* error = SetAura(true))
+            Print(std::string("aura - off: ") + error);
+        if (const char* error = SetDepth(true))
+            Print(std::string("depth - off: ") + error);
+        if (const char* error = SetNight(true))
+            Print(std::string("night - off: ") + error);
         return true;
     }
     void Direct3DPresent(const RECT*, const RECT*, HWND, const RGNDATA*) override
@@ -108,7 +114,7 @@ public:
     }
     bool Direct3DDrawPrimitiveUP(D3DPRIMITIVETYPE t, UINT count, CONST void* data, UINT stride) override { return OnDrawPrimitiveUP(t, count, data, stride); }
 
-    // /portfix [help] | /portfix <water|halo|shine|buttons|disint|mouse> [on|off] | /portfix halomax [yalms|on|off]
+    // /portfix [help] | /portfix <water|halo|shine|buttons|disint|mouse|aura|depth|night> [on|off] | /portfix halomax [yalms|on|off]
     bool HandleCommand(int32_t mode, const char* command, bool injected) override
     {
         std::vector<std::string> args;
@@ -142,6 +148,30 @@ public:
                 Print(std::string("mouse - off: ") + error);
             else
                 Print(std::string("mouse - ") + (m_Mouse ? "on" : "off"));
+        }
+        else if (sub == "aura")
+        {
+            const bool on = arg == "on" ? true : arg == "off" ? false : !m_Aura;
+            if (const char* error = SetAura(on))
+                Print(std::string("aura - off: ") + error);
+            else
+                Print(std::string("aura - ") + (m_Aura ? "on" : "off"));
+        }
+        else if (sub == "depth")
+        {
+            const bool on = arg == "on" ? true : arg == "off" ? false : !m_Depth;
+            if (const char* error = SetDepth(on))
+                Print(std::string("depth - off: ") + error);
+            else
+                Print(std::string("depth - ") + (m_Depth ? "on" : "off"));
+        }
+        else if (sub == "night")
+        {
+            const bool on = arg == "on" ? true : arg == "off" ? false : !m_Night;
+            if (const char* error = SetNight(on))
+                Print(std::string("night - off: ") + error);
+            else
+                Print(std::string("night - ") + (m_Night ? "on" : "off"));
         }
         else if (sub == "halomax")
         {
@@ -180,6 +210,9 @@ public:
             Print(std::string("buttons - ") + (m_Buttons ? "on" : "off"));
             Print(std::string("disint - ") + (m_Disint ? "on" : "off"));
             Print(std::string("mouse - ") + (m_Mouse ? "on" : "off"));
+            Print(std::string("aura - ") + (m_Aura ? "on" : "off"));
+            Print(std::string("depth - ") + (m_Depth ? "on" : "off"));
+            Print(std::string("night - ") + (m_Night ? "on" : "off"));
         }
         else
         {
@@ -191,6 +224,9 @@ public:
             Print("/portfix buttons [on|off] - menu button rim fix");
             Print("/portfix disint [on|off] - disintegrate effect fix");
             Print("/portfix mouse [on|off] - menu mouse position fix for windowed modes");
+            Print("/portfix aura [on|off] - summon lighting fix");
+            Print("/portfix depth [on|off] - effect depth fix (summon glows)");
+            Print("/portfix night [on|off] - night lighting fix (no moonlight where the PS2 has none)");
             Print("/portfix debug [on|off] - log details for a bug report (off by default)");
             Print("/portfix help - this list");
         }

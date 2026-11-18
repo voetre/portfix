@@ -4,7 +4,7 @@ Fixes for graphics that the PC version of FINAL FANTASY XI draws incorrectly. Th
 
 Initially created to fix the Port Bastok water, it has evolved into fixing other effects as well.
 
-All fixes are on by default. The water, halo and shine fixes only change the order, texture, position, batching or blend stages of draws the game already makes. The disintegrate fix restores a PS2 effect the PC skips: it patches two places in the game's code and draws the effect's pieces itself.
+All fixes are on by default. The water, halo and shine fixes only change the order, texture, position, batching or blend stages of draws the game already makes. The disintegrate fix restores a PS2 effect the PC skips: it patches two places in the game's code and draws the effect's pieces itself. The summon lighting fix rewrites one branch of the game's lighting code to the PS2's rule. The effect depth fix hooks the game's effect drawing to apply the depth bias the PS2 applies. The night lighting fix hooks the game's hourly lighting update to leave the moon out where the PS2 does.
 
 Builds: Ashita v4 plugin, Windower 4 addon.
 
@@ -70,6 +70,24 @@ The buttons on the title and character screens (the title menu, the config windo
 |---|
 | ![Title menu buttons: PS2, PC fix off, PC fix on](media/buttons-ps2-off-on.jpg) |
 
+### Summon lighting
+
+Carbuncle is drawn darker on the PC, and its glow lights only part of its body, so its light cyan reads as a greener teal. Titan and other summons are lit a neutral grey at every hour, where the PS2 lights them with the zone's own light, bluish at night. Two fixes put this right: the summon lighting fix lights them the way the PS2 does (Carbuncle and the other self-lit models at full brightness, the rest by the zone), and the effect depth fix lays glows over the whole body, as the PS2 does. With both, Carbuncle's body measures 99 to 101% of the PS2's colour.
+
+| Comparison |
+|---|
+| ![Carbuncle: PS2, PC with no fix, PC with portfix](media/summon-ps2-off-on.jpg) |
+| PS2 at 3x resolution, PC with no fix, PC with portfix |
+
+### Night lighting
+
+At night the PC lights every zone with the moon, which brightens the ground and characters and casts sharp shadows. The PS2 lights only some zones with the moon; in the others, such as Port Bastok, nights are lit by the ambient light alone and are much darker. The fix follows the PS2's list of moonlit zones.
+
+| Port Bastok at 22:00 |
+|---|
+| ![Port Bastok at night: PS2, PC with no fix, PC with portfix](media/night-ps2-off-on.jpg) |
+| PS2 at 3x resolution, PC with no fix, PC with portfix |
+
 ### Menu mouse position
 
 In a window, the mouse is measured against a window frame of the standard size. When the real frame differs, as it does under Wine or Proton, the title screen's buttons highlight when the pointer is above them. The fix measures against the window's real frame.
@@ -88,6 +106,9 @@ Ashita: `/portfix`. Windower: `//portfix` in chat, `portfix` in the console.
 | `/portfix buttons [on\|off]` | Menu button rim fix. No argument toggles. |
 | `/portfix disint [on\|off]` | Disintegrate effect fix. No argument toggles. |
 | `/portfix mouse [on\|off]` | Menu mouse position fix. No argument toggles. |
+| `/portfix aura [on\|off]` | Summon lighting fix. No argument toggles. |
+| `/portfix depth [on\|off]` | Effect depth fix (summon glows). No argument toggles. |
+| `/portfix night [on\|off]` | Night lighting fix. No argument toggles. |
 | `/portfix debug [on\|off]` | Log details for a bug report. Off by default. |
 | `/portfix help` | List commands. |
 

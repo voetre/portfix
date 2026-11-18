@@ -33,6 +33,9 @@ namespace
     std::atomic<bool> g_WantShine{true};
     std::atomic<bool> g_WantDisint{true};
     std::atomic<bool> g_WantMouse{true};
+    std::atomic<bool> g_WantAura{true};
+    std::atomic<bool> g_WantDepth{true};
+    std::atomic<bool> g_WantNight{true};
     std::atomic<bool> g_WantButtons{true};
     std::atomic<bool> g_WantDebug{false}; // /portfix debug: lines go to portfix.log next to the dll
     std::atomic<float> g_WantHaloMax{0.0f}; // /portfix halomax, yalms; 0: off
@@ -40,6 +43,9 @@ namespace
     bool g_SplitFailed  = false; // the same, for the shine fix's merged batches
     bool g_HaloMaxFailed = false; // the same, for the halo cap
     bool g_MouseFailed   = false; // the same, for the mouse fix
+    bool g_AuraFailed    = false; // the same, for the aura lighting fix
+    bool g_DepthFailed   = false; // the same, for the effect depth fix
+    bool g_NightFailed   = false; // the same, for the night lighting fix
 
     class WindowerFixes final : public Fixes
     {
@@ -77,6 +83,12 @@ namespace
                 g_HaloMaxFailed = g_Fixes.SetHaloMax(yalms) != nullptr;
             if (const bool on = g_WantMouse; on != g_Fixes.m_Mouse && !g_MouseFailed)
                 g_MouseFailed = g_Fixes.SetMouse(on) != nullptr;
+            if (const bool on = g_WantAura; on != g_Fixes.m_Aura && !g_AuraFailed)
+                g_AuraFailed = g_Fixes.SetAura(on) != nullptr;
+            if (const bool on = g_WantDepth; on != g_Fixes.m_Depth && !g_DepthFailed)
+                g_DepthFailed = g_Fixes.SetDepth(on) != nullptr;
+            if (const bool on = g_WantNight; on != g_Fixes.m_Night && !g_NightFailed)
+                g_NightFailed = g_Fixes.SetNight(on) != nullptr;
             if (const bool on = g_WantDebug; on != DebugLog::On())
             {
                 if (on)
@@ -218,7 +230,7 @@ namespace
         return 2;
     }
 
-    // set(water, halo, disint, shine, mouse, buttons)
+    // set(water, halo, disint, shine, mouse, buttons, aura, depth, night)
     int LuaSet(lua_State* L)
     {
         g_WantWater  = lua_toboolean(L, 1) != 0;
@@ -227,6 +239,9 @@ namespace
         g_WantShine  = lua_toboolean(L, 4) != 0;
         g_WantMouse  = lua_toboolean(L, 5) != 0;
         g_WantButtons = lua_toboolean(L, 6) != 0;
+        g_WantAura    = lua_toboolean(L, 7) != 0;
+        g_WantDepth   = lua_toboolean(L, 8) != 0;
+        g_WantNight   = lua_toboolean(L, 9) != 0;
         return 0;
     }
 

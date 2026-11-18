@@ -13,6 +13,17 @@ bool Fixes::OnDrawPrimitive(const D3DPRIMITIVETYPE t, const UINT start, const UI
 {
     if (m_Drawing || m_Device == nullptr)
         return false;
+    D3DMATRIX keep;
+    if (DepthBegin(&keep)) // an effect drawn with its depth bias (depth.cpp)
+    {
+        if (m_WaterHeld)
+            WaterFlush();
+        m_Drawing = true;
+        RawDrawPrimitive(t, start, count);
+        m_Drawing = false;
+        DepthEnd(keep);
+        return true;
+    }
     if (m_Disint)
         DisintBeforeDraw();
     if (!m_Water)
@@ -34,6 +45,17 @@ bool Fixes::OnDrawIndexedPrimitive(const D3DPRIMITIVETYPE t, const UINT minIndex
 {
     if (m_Drawing || m_Device == nullptr)
         return false;
+    D3DMATRIX keep;
+    if (DepthBegin(&keep))
+    {
+        if (m_WaterHeld)
+            WaterFlush();
+        m_Drawing = true;
+        RawDrawIndexedPrimitive(t, minIndex, numVerts, startIndex, count);
+        m_Drawing = false;
+        DepthEnd(keep);
+        return true;
+    }
     if (m_WaterHeld)
         WaterFlush();
     if (m_Disint)
@@ -49,6 +71,17 @@ bool Fixes::OnDrawPrimitiveUP(const D3DPRIMITIVETYPE t, const UINT count, const 
 {
     if (m_Drawing || m_Device == nullptr)
         return false;
+    D3DMATRIX keep;
+    if (DepthBegin(&keep))
+    {
+        if (m_WaterHeld)
+            WaterFlush();
+        m_Drawing = true;
+        RawDrawPrimitiveUP(t, count, data, stride);
+        m_Drawing = false;
+        DepthEnd(keep);
+        return true;
+    }
     if (m_Disint)
         DisintBeforeDraw();
     if (m_WaterHeld)
@@ -62,6 +95,7 @@ bool Fixes::OnDrawPrimitiveUP(const D3DPRIMITIVETYPE t, const UINT count, const 
 
 void Fixes::OnPresent(void)
 {
+    DepthPresent();
     m_WaterHeld = false; // a ripple draw with nothing after it in the frame is dropped
     m_WaterState.Clear(); // and its references let go: none may outlive the frame (a device reset needs them gone)
     m_HaloSrc   = nullptr;
@@ -100,8 +134,8 @@ const char* Fixes::SetDisint(const bool on)
 // own, DXVK, dgVoodoo...), the back buffer and the capabilities the fixes check.
 void Fixes::DebugReport(const char* version) const
 {
-    PF_DEBUG("portfix %s: water %s, halo %s, shine %s (split %s), disint %s, mouse %s", version, m_Water ? "on" : "off", m_Halo ? "on" : "off",
-             m_Shine ? "on" : "off", m_Split ? "on" : "off", m_Disint ? "on" : "off", m_Mouse ? "on" : "off");
+    PF_DEBUG("portfix %s: water %s, halo %s, shine %s (split %s), disint %s, mouse %s, aura %s, depth %s, night %s", version, m_Water ? "on" : "off", m_Halo ? "on" : "off",
+             m_Shine ? "on" : "off", m_Split ? "on" : "off", m_Disint ? "on" : "off", m_Mouse ? "on" : "off", m_Aura ? "on" : "off", m_Depth ? "on" : "off", m_Night ? "on" : "off");
     for (const char* dll : {"d3d8.dll", "d3d9.dll", "d3d11.dll", "d3d12.dll", "dxgi.dll", "wined3d.dll"})
         if (HMODULE m = ::GetModuleHandleA(dll))
         {
@@ -172,6 +206,9 @@ void Fixes::DebugReport(const char* version) const
 void Fixes::Release(void)
 {
     SetMouse(false);
+    SetAura(false);
+    SetDepth(false);
+    SetNight(false);
     SetHaloMax(0.0f);
     SetSplit(false);
     SetDisint(false);
