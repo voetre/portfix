@@ -471,16 +471,22 @@ The PC copies op 0x30's value into the element and keeps the same flags (bits 22
 
 ### Fix
 
-The element's draw setup is hooked (a 6-byte jump at its entry, the moved instruction in a trampoline). The setup records the element's flags, bias and view depth; for that element's 3D draws the projection's depth is moved by the PS2's amount and put back after the draw. Both depths are linear in 1/d, so a fixed change in the PS2's Z is a fixed change in D3D's: z += _43 x (1/d - 1/(d - bias)), or _43 x (-bias x 2000 / 1677721.6) with bit 27, added to the projection's z column (_33 += z x _34). The game sets the projection again between the setup and the draw, so the change is made in the draw hooks, not in the setup.
+The element's draw setup is hooked (a 6-byte jump at its entry, the moved instruction in a trampoline), and so are the two element draw methods that call it. The setup records the element's flags, bias and view depth; for that element's 3D draws the projection's depth is moved by the PS2's amount and put back after the draw. The bias holds from the setup to the end of the draw method that called it, and the caller's is restored when a method returns: other element types draw without calling the setup, and neither they nor the scenery drawn after the frame's last effect may inherit an effect's bias. Both depths are linear in 1/d, so a fixed change in the PS2's Z is a fixed change in D3D's: z += _43 x (1/d - 1/(d - bias)), added to the projection's z column (_33 += z x _34). The game sets the projection again between the setup and the draw, so the change is made in the draw hooks, not in the setup.
 
 `/portfix depth off` takes the hook out. If the setup isn't found (another client version, or another plugin hooked it) the fix stays off and Ashita prints the reason.
 
 Checked under DXVK at 1920x1080 with Carbuncle: with its texture black, the glow covers the whole body as on the PS2; with its own texture and both this and the aura fix, its body averages 99 to 101% of the PS2's, the same light cyan.
 
+### Biases in depth units (bit 27)
+
+Reported after v1.5: in Southern San d'Oria, translucent grey sheets showed over the doorways and in front of the walls with the fix on, in cutscenes and in normal play. They come from two elements with bit 27 and a bias of -15, that is 30000 PS2 depth units: translucent layers (alpha blended, no depth write) 157 and 229 yalms from the camera. Moved by that much, they are tested as if about 45 yalms away, in front of every wall further than that, which shows in the doorways where the view reaches past the wall.
+
+On the PS2, at the same place and time of day, there are no such sheets, and setting that element's bias to 0, -15 or -150 in the PS2's memory changes nothing on screen. So biases with bit 27 are left alone; only biases in yalms (Carbuncle's kind, compared with the PS2) are applied.
+
 ### Faithfulness
 
-- The change is per element, from its view depth, as on the PS2; the PS2's depth is only used to scale the raw (bit 27) case.
-- Every effect with a depth bias is affected, not only summons. Only Carbuncle's glow and sparkles were compared with the PS2.
+- The change is per element, from its view depth, as on the PS2.
+- Every effect with a depth bias in yalms is affected, not only summons. Only Carbuncle's glow and sparkles were compared with the PS2. Biases in depth units (bit 27) are not applied (above).
 - On the PS2 the summon is also drawn into an off-screen copy that its three halo copies come from (see Summon halos). That isn't changed.
 
 ## Night lighting

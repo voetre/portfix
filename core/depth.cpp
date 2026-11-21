@@ -4,7 +4,9 @@
 // value but only sorts by it, so the glow is tested at its true place, inside the model, and the near half of the
 // body hides it. The fix hooks the element's draw setup and, for an element with a bias, shifts the projection's
 // depth by the same amount around that element's own draws (the game sets the projection again between the setup
-// and the draw, so it is applied in the draw hooks). TECHNICAL.md, "Effect depth".
+// and the draw, so it is applied in the draw hooks). The setup is called by two element draw methods, and the bias
+// holds only from the setup to the end of that method: other element types, and the scenery drawn after the last
+// effect, draw without calling the setup. TECHNICAL.md, "Effect depth".
 #include "fixes.h"
 #include "debuglog.h"
 
@@ -15,20 +17,43 @@ namespace
 {
     // The element's draw setup (FUN_052d67e0 in the 2026 client), __fastcall with the element in ECX, RET 4:
     //   sub esp,0D8h / cmp word [esp+0DCh],0FFFFh / push ebx / push ebp / mov ebp,ecx / push esi / mov [esp+..],ebp
-    const char Entry[]     = "\x81\xEC\xD8\x00\x00\x00\x66\x81\xBC\x24\xDC\x00\x00\x00\xFF\xFF\x53\x55\x8B\xE9\x56\x89\x6C\x24";
-    constexpr size_t Moved = 6; // sub esp,0D8h: moved to the trampoline whole
+    // A function's entry, moved to a trampoline (then a jmp back) and replaced by a jmp to the hook.
+    struct Hook
+    {
+        const char* entry; // bytes the function starts with (the first moved are whole instructions)
+        size_t length;
+        size_t moved;
+        void* to;
+        uint8_t* at   = nullptr; // while hooked
+        uint8_t* tramp = nullptr;
+        uint8_t orig[8]{};
+    };
+
+    // The element's draw setup (FUN_052d67e0 in the 2026 client), __fastcall with the element in ECX, RET 4:
+    //   sub esp,0D8h / cmp word [esp+0DCh],0FFFFh / push ebx / push ebp / mov ebp,ecx / push esi / mov [esp+..],ebp
+    const char SetupEntry[] = "\x81\xEC\xD8\x00\x00\x00\x66\x81\xBC\x24\xDC\x00\x00\x00\xFF\xFF\x53\x55\x8B\xE9\x56\x89\x6C\x24";
+    // The two element draw methods that call it (vtable 0x055bb400 in the 2026 client), __fastcall, element in ECX, RET:
+    //   FUN_052d6070: sub esp,50h / lea eax,[esp+0Ch] / push ebp / mov ebp,ecx / push ecx / fld [ebp+138h] / fmul [ebp+134h] / lea ecx,[ebp+0F8h]
+    //   FUN_052d0e70 (it draws a light volume, then calls the setup): sub esp,28h / push ebx / mov ebx,ecx / mov eax,[ebx+104h] / test eax,eax / jz +123h / mov eax,..
+    const char DrawAEntry[] = "\x83\xEC\x50\x8D\x44\x24\x0C\x55\x8B\xE9\x51\xD9\x85\x38\x01\x00\x00\xD8\x8D\x34\x01\x00\x00\x8D\x8D\xF8\x00\x00\x00";
+    const char DrawBEntry[] = "\x83\xEC\x28\x53\x8B\xD9\x8B\x83\x04\x01\x00\x00\x85\xC0\x0F\x84\x23\x01\x00\x00\xA1";
 
     using SetupFn = uint32_t(__fastcall*)(void* element, void* edx, uint32_t arg);
+    using DrawFn  = uint32_t(__fastcall*)(void* element, void* edx);
 
-    uint8_t* s_Entry      = nullptr;  // the setup, while hooked
-    uint8_t s_Orig[Moved] = {};
-    uint8_t* s_Tramp      = nullptr;  // the moved bytes, then a jmp back
+    uint32_t __fastcall SetupHook(void* element, void* edx, uint32_t arg);
+    uint32_t __fastcall DrawAHook(void* element, void* edx);
+    uint32_t __fastcall DrawBHook(void* element, void* edx);
+
+    Hook s_Setup{SetupEntry, sizeof(SetupEntry) - 1, 6, reinterpret_cast<void*>(&SetupHook)}; // sub esp,0D8h
+    Hook s_DrawA{DrawAEntry, sizeof(DrawAEntry) - 1, 7, reinterpret_cast<void*>(&DrawAHook)}; // sub esp,50h / lea eax,[esp+0Ch]
+    Hook s_DrawB{DrawBEntry, sizeof(DrawBEntry) - 1, 6, reinterpret_cast<void*>(&DrawBHook)}; // sub esp,28h / push ebx / mov ebx,ecx
 
     // The element's fields (PC layout, the PS2's in brackets): flags +10Ch (+B4h), bias +128h (+E4h), view depth +13Ch (+E8h).
     // A copy from +10Ch is kept for the draws, so these are offsets into it.
     constexpr size_t Flags = 0x10C - 0x10C, Bias = 0x128 - 0x10C, Depth = 0x13C - 0x10C;
-    // Flag bit 22: no bias. Bit 27: the bias is in PS2 depth units, x -2000. Otherwise yalms toward the camera.
-    constexpr float PS2DepthScale = 1677721.6f; // the PS2 projection's depth: Z = 1677721.6 / d - 25.5
+    // Flag bit 22: no bias. Bit 27: the bias is in PS2 depth units, x -2000 (not applied, see BiasFor). Otherwise
+    // yalms toward the camera.
 
     // How far to move the draw's depth in NDC: the PS2's change in Z, which is linear in 1/d as D3D's depth is.
     bool BiasFor(const uint8_t* e, const D3DMATRIX& proj, float* delta)
@@ -39,18 +64,18 @@ namespace
         std::memcpy(&bias, e + Bias, 4);
         std::memcpy(&z, e + Depth, 4);
         // a perspective projection, w = _34 * z: the view looks down -z (_34 = -1), so the distance d is w
-        if ((flags >> 22 & 1) != 0 || bias == 0.0f || proj._34 == 0.0f || proj._14 != 0.0f || proj._24 != 0.0f || proj._44 != 0.0f)
+        // Bit 27 (a bias in raw depth units) is left alone. Southern San d'Oria has two such elements, translucent
+        // layers 150-230 yalms out with -15 (30000 PS2 depth units): moved that much they come in front of the town's
+        // walls, in the doorways. On the PS2 the same element looks the same at a bias of 0, -15 or -150.
+        if ((flags >> 22 & 1) != 0 || (flags >> 27 & 1) != 0 || bias == 0.0f || proj._34 == 0.0f || proj._14 != 0.0f ||
+            proj._24 != 0.0f || proj._44 != 0.0f)
             return false;
         const float d = proj._34 * z;
         if (!(d > 0.01f))
             return false;
-        float inv = 0.0f; // change in 1/d
-        if ((flags >> 27 & 1) != 0)
-            inv = -bias * 2000.0f / PS2DepthScale;
-        else if (d - bias > 0.01f)
-            inv = 1.0f / d - 1.0f / (d - bias);
-        else
+        if (!(d - bias > 0.01f))
             return false;
+        const float inv = 1.0f / d - 1.0f / (d - bias); // change in 1/d
         *delta = proj._43 * inv; // z_ndc = _33 / _34 + _43 / w, w = d
         return *delta != 0.0f;
     }
@@ -61,11 +86,35 @@ namespace
 
     uint32_t __fastcall SetupHook(void* element, void* edx, uint32_t arg)
     {
-        const uint32_t r = reinterpret_cast<SetupFn>(s_Tramp)(element, edx, arg);
+        const uint32_t r = reinterpret_cast<SetupFn>(s_Setup.tramp)(element, edx, arg);
         s_Pending = element != nullptr;
         if (s_Pending)
             std::memcpy(s_Fields, static_cast<const uint8_t*>(element) + 0x10C, sizeof(s_Fields));
         return r;
+    }
+
+    // An element draw method: no bias until it calls the setup, and the caller's (an element drawing its children)
+    // back when it returns.
+    uint32_t Draw(const Hook& h, void* element, void* edx)
+    {
+        const bool pending = s_Pending;
+        uint8_t fields[sizeof(s_Fields)];
+        std::memcpy(fields, s_Fields, sizeof(fields));
+        s_Pending        = false;
+        const uint32_t r = reinterpret_cast<DrawFn>(h.tramp)(element, edx);
+        s_Pending        = pending;
+        std::memcpy(s_Fields, fields, sizeof(fields));
+        return r;
+    }
+
+    uint32_t __fastcall DrawAHook(void* element, void* edx)
+    {
+        return Draw(s_DrawA, element, edx);
+    }
+
+    uint32_t __fastcall DrawBHook(void* element, void* edx)
+    {
+        return Draw(s_DrawB, element, edx);
     }
 
     bool Poke(uint8_t* at, const void* data, size_t n)
@@ -79,14 +128,13 @@ namespace
         return true;
     }
 
-    uint8_t* Find(void)
+    uint8_t* Find(const char* entry, const size_t n)
     {
         const auto base = reinterpret_cast<const uint8_t*>(::GetModuleHandleA("FFXiMain.dll"));
         if (base == nullptr)
             return nullptr;
         const auto nt      = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
         const auto section = IMAGE_FIRST_SECTION(nt);
-        const size_t n     = sizeof(Entry) - 1;
         for (WORD s = 0; s < nt->FileHeader.NumberOfSections; ++s)
         {
             if ((section[s].Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0)
@@ -94,10 +142,47 @@ namespace
             const uint8_t* p   = base + section[s].VirtualAddress;
             const uint8_t* end = p + section[s].Misc.VirtualSize - n;
             for (; p < end; ++p)
-                if (std::memcmp(p, Entry, n) == 0)
+                if (std::memcmp(p, entry, n) == 0)
                     return const_cast<uint8_t*>(p);
         }
         return nullptr;
+    }
+
+    void Unhook(Hook& h)
+    {
+        if (h.at != nullptr)
+            Poke(h.at, h.orig, h.moved);
+        h.at = nullptr;
+    }
+
+    // False: not found, or couldn't be patched.
+    bool Install(Hook& h)
+    {
+        uint8_t* at = Find(h.entry, h.length);
+        if (at == nullptr)
+            return false;
+        if (h.tramp == nullptr)
+        {
+            // moved bytes + jmp rel32 back; stays allocated (a draw may be inside it when the hook is removed)
+            h.tramp = static_cast<uint8_t*>(::VirtualAlloc(nullptr, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+            if (h.tramp == nullptr)
+                return false;
+        }
+        std::memcpy(h.tramp, at, h.moved);
+        h.tramp[h.moved] = 0xE9;
+        const int32_t back = static_cast<int32_t>(reinterpret_cast<intptr_t>(at + h.moved) - reinterpret_cast<intptr_t>(h.tramp + h.moved + 5));
+        std::memcpy(h.tramp + h.moved + 1, &back, 4);
+        ::FlushInstructionCache(::GetCurrentProcess(), h.tramp, 16);
+        uint8_t jmp[sizeof(h.orig)];
+        std::memset(jmp, 0x90, sizeof(jmp));
+        jmp[0]         = 0xE9;
+        const int32_t to = static_cast<int32_t>(reinterpret_cast<intptr_t>(h.to) - reinterpret_cast<intptr_t>(at + 5));
+        std::memcpy(jmp + 1, &to, 4);
+        std::memcpy(h.orig, at, h.moved);
+        if (!Poke(at, jmp, h.moved))
+            return false;
+        h.at = at;
+        return true;
     }
 }
 
@@ -140,37 +225,24 @@ const char* Fixes::SetDepth(const bool on)
         return nullptr;
     if (!on)
     {
-        if (s_Entry != nullptr)
-            Poke(s_Entry, s_Orig, Moved);
-        s_Entry   = nullptr;
+        Unhook(s_Setup);
+        Unhook(s_DrawA);
+        Unhook(s_DrawB);
         s_Pending = false;
         m_Depth   = false;
         PF_DEBUG("depth: off");
         return nullptr;
     }
-    uint8_t* at = Find();
-    if (at == nullptr)
-        return "the effect draw setup wasn't found (or another plugin hooked it)";
-    if (s_Tramp == nullptr)
+    // The draw methods first: once the setup is hooked, the bias must end with them.
+    if (!Install(s_DrawA) || !Install(s_DrawB) || !Install(s_Setup))
     {
-        // moved bytes + jmp rel32 back; stays allocated (a draw may be inside it when the hook is removed)
-        s_Tramp = static_cast<uint8_t*>(::VirtualAlloc(nullptr, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-        if (s_Tramp == nullptr)
-            return "couldn't allocate the hook";
+        Unhook(s_Setup);
+        Unhook(s_DrawA);
+        Unhook(s_DrawB);
+        return "the effect draw code wasn't found (or another plugin hooked it)";
     }
-    std::memcpy(s_Tramp, at, Moved);
-    s_Tramp[Moved] = 0xE9;
-    const int32_t back = static_cast<int32_t>(reinterpret_cast<intptr_t>(at + Moved) - reinterpret_cast<intptr_t>(s_Tramp + Moved + 5));
-    std::memcpy(s_Tramp + Moved + 1, &back, 4);
-    ::FlushInstructionCache(::GetCurrentProcess(), s_Tramp, 16);
-    uint8_t jmp[Moved] = {0xE9, 0, 0, 0, 0, 0x90};
-    const int32_t to = static_cast<int32_t>(reinterpret_cast<intptr_t>(&SetupHook) - reinterpret_cast<intptr_t>(at + 5));
-    std::memcpy(jmp + 1, &to, 4);
-    std::memcpy(s_Orig, at, Moved);
-    if (!Poke(at, jmp, Moved))
-        return "couldn't patch the effect draw setup";
-    s_Entry = at;
-    m_Depth = true;
-    PF_DEBUG("depth: on, hooked at %p", static_cast<void*>(at));
+    s_Pending = false;
+    m_Depth   = true;
+    PF_DEBUG("depth: on, hooked at %p, %p, %p", static_cast<void*>(s_Setup.at), static_cast<void*>(s_DrawA.at), static_cast<void*>(s_DrawB.at));
     return nullptr;
 }
