@@ -82,6 +82,7 @@ private:
     bool WaterSurface(void) const;
     static constexpr float WaterLift = 0.05f; // yalms; Bastok Markets' water lies 0.0415 under the canal's plane
     bool WaterLayer(void) const;
+    bool WaterFlat(D3DPRIMITIVETYPE t, UINT start, UINT count) const;
     void WaterDraw(D3DPRIMITIVETYPE t, UINT start, UINT count, bool lift);
     bool WaterHold(D3DPRIMITIVETYPE t, UINT start, UINT count);
     void WaterFlush(void);

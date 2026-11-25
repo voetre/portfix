@@ -28,12 +28,13 @@ bool Fixes::OnDrawPrimitive(const D3DPRIMITIVETYPE t, const UINT start, const UI
         DisintBeforeDraw();
     if (!m_Water)
         return false;
-    if (WaterSurface()) // the ripple layer waits for the tint layer
+    // Water is level; effects drawn with the same states (the mothercrystals' layers) are not.
+    if (WaterSurface() && WaterFlat(t, start, count)) // the ripple layer waits for the tint layer
     {
         WaterFlush();
         return WaterHold(t, start, count);
     }
-    const bool layer = WaterLayer();
+    const bool layer = WaterLayer() && WaterFlat(t, start, count);
     if (!m_WaterHeld && !layer)
         return false;
     WaterDraw(t, start, count, layer); // a held ripple layer goes on top of this one
@@ -338,6 +339,66 @@ bool Fixes::WaterLayer(void) const
         return false;
     m_Device->GetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, &v);
     return v == D3DTTFF_COUNT2;
+}
+
+namespace
+{
+    // portfix's verdict on a draw's vertices, kept on the vertex buffer (a freed buffer takes it with it).
+    const GUID FlatTag = {0x3e0b7f61, 0x9c2d, 0x4a57, {0x8e, 0x14, 0x6b, 0xd2, 0x05, 0x9a, 0x71, 0xc3}};
+    struct FlatVerdict
+    {
+        UINT start, verts;
+        DWORD flat;
+    };
+
+    // Every vertex in [start, start + verts) faces more up (or down) than sideways: its normal (FVF XYZ|NORMAL, after
+    // the position) within 45 degrees of local y, the axis the lift moves along. Measured: water layers 0-8 degrees,
+    // the mothercrystals' 84-90. *upright is the smallest |normal y| / |normal|.
+    DWORD Flat(IDirect3DVertexBuffer8* vb, const UINT stride, const UINT start, const UINT verts, float* upright)
+    {
+        D3DVERTEXBUFFER_DESC desc{};
+        BYTE* p = nullptr;
+        *upright = 1.0f;
+        if (stride < 24 || FAILED(vb->GetDesc(&desc)) || (start + verts) * stride > desc.Size)
+            return TRUE;
+        if (FAILED(vb->Lock(0, 0, &p, D3DLOCK_READONLY)))
+            return TRUE; // can't read it: as before, the states alone decide
+        for (UINT i = 0; i < verts; ++i)
+        {
+            float n[3];
+            std::memcpy(n, p + (start + i) * stride + 12, sizeof(n));
+            const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (len > 0.0f)
+                *upright = (std::min)(*upright, std::fabs(n[1]) / len);
+        }
+        vb->Unlock();
+        return *upright >= 0.7071f;
+    }
+}
+
+// A water layer is a level surface: every vertex faces up, along the axis the lift moves it. Effects can use the
+// water's draw states on solid shapes (the mothercrystals' scrolling layers); lifted or held back, those lose their
+// downward and sideways faces to the depth test (the overlay missing along a crystal's lower edge). They are drawn
+// as they are. The verdict is worked out once per buffer and draw range.
+bool Fixes::WaterFlat(const D3DPRIMITIVETYPE t, const UINT start, const UINT count) const
+{
+    const UINT verts = t == D3DPT_TRIANGLELIST ? count * 3 : t == D3DPT_TRIANGLESTRIP || t == D3DPT_TRIANGLEFAN ? count + 2 : 0;
+    IDirect3DVertexBuffer8* vb = nullptr;
+    UINT stride = 0;
+    if (verts == 0 || FAILED(m_Device->GetStreamSource(0, &vb, &stride)) || vb == nullptr)
+        return true;
+    FlatVerdict v{};
+    DWORD size = sizeof(v);
+    if (FAILED(vb->GetPrivateData(FlatTag, &v, &size)) || size != sizeof(v) || v.start != start || v.verts != verts)
+    {
+        float upright = 1.0f;
+        v = {start, verts, Flat(vb, stride, start, verts, &upright)};
+        vb->SetPrivateData(FlatTag, &v, sizeof(v), 0);
+        PF_DEBUG("water: layer vb %p, %u vertices from %u, normals within %.1f degrees of vertical: %s", static_cast<void*>(vb), verts, start,
+                 std::acos((std::min)(upright, 1.0f)) * 57.29578f, v.flat ? "water" : "not level, drawn as it is");
+    }
+    vb->Release();
+    return v.flat != FALSE;
 }
 
 // Draws with the current state; a water layer is moved WaterLift up first. FFXI's y points down and the water's

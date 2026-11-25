@@ -110,6 +110,18 @@ Checked in the harness:
 - Port Bastok's sea: the same colour as v1.2 (mean RGB 54,63,71 against 54,63,72; 41,43,44 with the fix off).
 - Windurst Waters, Port Windurst, Southern San d'Oria, Bastok Mines: no visible change in views without water.
 
+### Effects drawn like water
+
+Reported after v1.5: with the fix on, the mothercrystal in an early Rhapsodies of Vana'diel cutscene (mission 1-7, Lion at a crag's mothercrystal) lost part of its overlay along its lower-left edge, and the edge flickered as the camera panned. With `/portfix water off` it looked right.
+
+The crystal's scrolling layers are drawn with the water layers' states: FVF XYZ, NORMAL, DIFFUSE, TEX1, lighting off, additive blend, stage 0 texture transform COUNT2. A frame of a mothercrystal cutscene had 97 such draws, all lifted 0.05. The lift assumes a level plane; the crystal layers are solid shells up to 53 yalms high. Moved up, their downward and sideways faces sink behind the surfaces they are painted on and fail the depth test.
+
+Both parts of the fix now also require the draw's vertices to face up: every vertex normal within 45 degrees of local y, the axis the lift moves along. The verdict is worked out once per vertex buffer and draw range, by reading the buffer, and kept on the buffer (`SetPrivateData`). Measured: Port Bastok's ripple layer 0 degrees, Bastok Markets' canal layers 0 to 8, two Port Windurst layers 18 and 33, the mothercrystal's layers 84 to 90. A buffer that can't be read is treated as before.
+
+Checked in game: in the reported shot, played three times, the crystal's facets beside Lion lose their overlay only with the old build and water on, and the new build matches water off. Port Bastok's ripple layer is still held and lifted and the sea stays blue-teal; every Bastok Markets canal layer is still lifted; no mothercrystal layer is lifted or held.
+
+Reported after v1.5 (issue #5): the flash that runs over the gold fishing arrows is drawn well above the arrow. It has the same cause. The flash (`arwg` in ROM/313/35.DAT) is an additive mesh with a scrolling texture, 0.25 yalms from the camera, so 0.05 is a fifth of its distance: about 190 pixels in the report. Its normals all face the camera (90 degrees from local y), so it is no longer lifted or held. Checked by playing the arrows' schedulers from their file: v1.5.1 with water on shows the displaced flash, with water off it lies on the arrow, and the new build with water on matches that.
+
 Not a bug: from low down by the Mines stairs, the canal right in front of the camera stays dark grey with the fix on or off, and with any lift up to 1.0. Projecting every water layer's vertices onto that frame shows why: the zone's water mesh has a hole there, so only the canal's opaque plane is drawn, and the ripple layer's vertex alpha fades to 0 toward the hole's edge, which gives the soft teal-to-dark boundary. No other draw covers the hole. This is authored data, and a PS2 frame from low down shows the same near-black water.
 
 ### Faithfulness

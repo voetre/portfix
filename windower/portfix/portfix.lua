@@ -1,7 +1,7 @@
 -- portfix for Windower 4. The fixes are in portfix.dll, next to this file.
 _addon.name     = 'portfix'
 _addon.author   = 'voetre'
-_addon.version  = '1.5.1'
+_addon.version  = '1.5.2'
 _addon.commands = {'portfix'}
 
 local fixes = {'water', 'halo', 'shine', 'buttons', 'disint', 'mouse', 'aura', 'depth', 'night'}
